@@ -3,7 +3,6 @@ import yaml
 import os
 from ast import literal_eval
 import copy
-
 class CfgNode(dict):
     """
     CfgNode represents an internal node in the configuration tree. It's a simple
@@ -154,10 +153,3 @@ def _check_and_coerce_cfg_value_type(replacement, original, key, full_key):
             original_type, replacement_type, original, replacement, full_key
         )
     )
-
-
-def _assert_with_logging(cond, msg):
-    if not cond:
-        logger.debug(msg)
-    assert cond, msg
-

@@ -11,7 +11,7 @@ class PPM(nn.Cell):
             # PyramidPool
             self.features.append(
                 nn.SequentialCell(
-                    # nn.AvgPool2d()
+                    # nn.AdaptiveAvgPool2d(bin)
                     #nn.AvgPool2d(bin) 这里暂时没有功能对应的实现
                     nn.Conv2d(in_dim, reduction_dim, kernel_size=1, has_bias=False),
                     nn.BatchNorm2d(reduction_dim),
@@ -24,6 +24,12 @@ class PPM(nn.Cell):
     def construct(self, x):
         x_size = x.shape()
         out = [x]
+        """
+        for f in self.features:
+            out.append(
+                F.interpolate(f(x), x_size[2:], mode="bilinear", align_corners=True)
+            )
+        """
         for f in self.features:
             resize_interpolate = ops.ResizeBilinear(x_size[2:], align_corners=True)
             out.append(resize_interpolate(f(x)))
@@ -97,7 +103,7 @@ class PSPNet(nn.Cell):
                 nn.Conv2d(256, classes, kernel_size=1),
             )
 
-    def construce(self, x, y=None):
+    def construct(self, x, y=None):
         x_size = x.shape()
         assert (x_size[2] - 1) % 8 == 0 and (x_size[3] - 1) % 8 == 0
         h = int((x_size[2] - 1) / 8 * self.zoom_factor + 1)

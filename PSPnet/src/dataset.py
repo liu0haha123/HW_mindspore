@@ -48,10 +48,10 @@ class SemData():
     def __init__(self,split='train', data_root=None, data_list=None):
         self.split = split
         self.data_list = make_dataset(split, data_root, data_list)
+        # self.transform = transform
 
     def __len__(self):
         return len(self.data_list)
-
 
     def __getitem__(self, index):
         image_path, label_path = self.data_list[index]
