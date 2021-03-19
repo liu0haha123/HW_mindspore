@@ -11,12 +11,13 @@ import mindspore.dataset.transforms.c_transforms as C_trans
 import mindspore.dataset.transforms.py_transforms as PY_trans
 import mindspore.dataset.vision.py_transforms as PY_trans_V
 import mindspore.dataset.vision.c_transforms as C_trans_V
-from mindspore.dataset.transforms.vision import Inter
+from mindspore.dataset.vision import Inter,Border
+# 核心思想 利用mindspore的已有算子，保证功能对应，不保证实现完全相同
 
 class Compose(object):
     def __init__(self,seg_transform_C,seg_transform_Py):
         self.seg_transform_C = seg_transform_C
-        self.seg_transform_Py = seg_transform_C
+        self.seg_transform_Py = seg_transform_Py
     def __call__(self,dataset):
         compose_C = C_trans.Compose(self.seg_transform_C)
         dataset = dataset.map(operations=compose_C,input_columns=["img","label"])
@@ -52,17 +53,34 @@ def Resize_image(size):
     return Resize_op
 
 def Resize_label(size):
-    # 原始现中 image的插值方法是线性插值
+    # 原始现中 label的插值方法是最近邻插值
     Resize_op = C_trans_V.Resize(size=size[::-1],interpolation=Inter.NEAREST)
     return Resize_op
 
-def Crop():
-    # 等待实现
-    pass
+def Crop_Center(crop_h,crop_w):
+    # 随机的中心裁剪 方式通用
+    Crop_ops = C_trans_V.CenterCrop(size=(crop_h,crop_w))
+    return Crop_ops
 
-def Scale():
-    # 等待实现
-    pass
+def RandCrop_image(crop_h,crop_w,padding):
+    # image 专用，因为填充值不同
+    Crop_ops = C_trans_V.RandomCrop(size=(crop_h,crop_w),fill_value=padding)
+    return Crop_ops
+
+def RandCrop_label(crop_h,crop_w,ignore_index):
+    # label 专用，因为填充值不同
+    Crop_ops = C_trans_V.RandomCrop(size=(crop_h,crop_w),fill_value=ignore_index)
+    return Crop_ops
+
+def RandScale(scale,aspect_ratio):
+    # 随机放缩输入图像
+    if random.random()<aspect_ratio:
+        Scale_op = C_trans_V.Rescale(scale,shift=-1.0)
+    else:
+        Scale_op = C_trans_V.Rescale(0.0,0.0)
+
+    return Scale_op
+
 
 def RandomHorizontalFlip(p):
     RandomHorizontalFlip_op = C_trans_V.RandomHorizontalFlip(p)
@@ -72,25 +90,24 @@ def RandomVerticalFlip(p):
     RandomVerticalFlip_op = C_trans_V.RandomVerticalFlip(p)
     return RandomVerticalFlip_op
 
-def Rotate_image(rotate,padding,p):
-    # image专用 这里可以分别指定 image和label填充边缘所使用的数字
-    angle = rotate[0] + (rotate[1] -rotate[0]) * random.random()
+def Rotate_image(rotate_angle,padding,p):
+    # image专用
     if random.random()<p:
-        rotate_op = C_trans_V.RandomRotation(angle,resample=Inter.LINEAR, expand=True,fill_value=padding)
+        rotate_op = C_trans_V.RandomRotation(rotate_angle,resample=Inter.LINEAR, expand=True,fill_value=padding)
     else:
         rotate_op = C_trans_V.RandomRotation(0,resample=Inter.LINEAR, expand=True,fill_value=padding)
     return rotate_op
 
-def Rotate_label(rotate,ignore_index,p):
-    # label 专用 这里可以分别指定 image和label填充边缘所使用的数字
-    angle = rotate[0] + (rotate[1] -rotate[0]) * random.random()
+def Rotate_label(rotate_angle,ignore_index,p):
+    # label 专用
     if random.random()<p:
-        rotate_op = C_trans_V.RandomRotation(angle,resample=Inter.NEAREST, expand=True,fill_value=ignore_index)
+        rotate_op = C_trans_V.RandomRotation(rotate_angle,resample=Inter.NEAREST, expand=True,fill_value=ignore_index)
     else:
         rotate_op = C_trans_V.RandomRotation(0,resample=Inter.NEAREST, expand=True,fill_value=ignore_index)
     return rotate_op
 
 class RandomGaussianBlur(object):
+    # 无法直接应用于框架中，需要在读取数据时处理
     def __init__(self, radius=5):
         self.radius = radius
 
