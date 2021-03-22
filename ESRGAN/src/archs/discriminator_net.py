@@ -1,4 +1,6 @@
 import mindspore.nn as nn
+from mindspore import ops
+
 
 class VGGStyleDiscriminator128(nn.Cell):
     """VGG style discriminator with input size 128 x 128.
@@ -48,8 +50,8 @@ class VGGStyleDiscriminator128(nn.Cell):
         self.linear1 = nn.Dense(num_feat*8*4*4,100)
         self.linear2 = nn.Dense(100,1)
         self.lrelu = nn.LeakyReLU(0.2)
-
-    def forward(self, x):
+        self.flatten = nn.Flatten()
+    def construct(self, x):
         assert x.size(2) == 128 and x.size(3) == 128, (
             f'Input spatial size must be 128x128, '
             f'but received {x.size()}.')
@@ -73,3 +75,9 @@ class VGGStyleDiscriminator128(nn.Cell):
         feat = self.lrelu(self.bn4_0(self.conv4_0(feat)))
         feat = self.lrelu(self.bn4_1(
             self.conv4_1(feat)))  # output spatial size: (4, 4)
+
+        feat = self.flatten(feat)
+        feat = self.lrelu(self.linear1(feat))
+
+        out = self.linear2(feat)
+        return out

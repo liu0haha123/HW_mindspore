@@ -12,7 +12,7 @@ def make_layer(block, n_layers):
 
 
 class ResidualDenseBlock_5C(nn.Cell):
-    def __init__(self, nf=64, gc=32, bias=True):
+    def __init__(self, nf=64, gc=32,res_beta=0.2, bias=True):
         super(ResidualDenseBlock_5C, self).__init__()
         # gc: growth channel, i.e. intermediate channels
         self.conv1 = nn.Conv2d(nf, gc, 3, 1, padding=1, has_bias=bias)
@@ -21,6 +21,7 @@ class ResidualDenseBlock_5C(nn.Cell):
         self.conv4 = nn.Conv2d(nf + 3 * gc, gc, 3, 1, padding=1, has_bias=bias)
         self.conv5 = nn.Conv2d(nf + 4 * gc, nf, 3, 1, padding=1, has_bias=bias)
         self.lrelu = nn.LeakyReLU(0.2)
+        self.res_beta = res_beta
         self.cat = mindspore.ops.Concat(1)
 
     def construct(self, x):
@@ -29,14 +30,15 @@ class ResidualDenseBlock_5C(nn.Cell):
         x3 = self.lrelu(self.conv3(self.cat((x, x1, x2))))
         x4 = self.lrelu(self.conv4(self.cat((x, x1, x2, x3))))
         x5 = self.conv5(self.cat((x, x1, x2, x3, x4)))
-        return x5 * 0.2 + x
+        return x5 * self.res_beta + x
 
 
 class RRDB(nn.Cell):
     '''Residual in Residual Dense Block'''
 
-    def __init__(self, nf, gc=32):
+    def __init__(self, nf, gc=32,res_beta=0.2):
         super(RRDB, self).__init__()
+        self.res_beta = res_beta
         self.RDB1 = ResidualDenseBlock_5C(nf, gc)
         self.RDB2 = ResidualDenseBlock_5C(nf, gc)
         self.RDB3 = ResidualDenseBlock_5C(nf, gc)
@@ -64,7 +66,7 @@ class RRDBNet(nn.Cell):
 
         self.lrelu = nn.LeakyReLU(0.2)
 
-    def forward(self, x):
+    def construct(self, x):
         fea = self.conv_first(x)
         trunk = self.trunk_conv(self.RRDB_trunk(fea))
         fea = fea + trunk
