@@ -1,7 +1,7 @@
 from PIL import Image
 import os
 from mindspore.dataset.vision import c_transforms,py_transforms
-
+# 标准的迭代格式读取方法
 class ESRGAN_Dataset():
     def __init__(self,data_path):
         self.data_path = data_path
@@ -25,3 +25,4 @@ def Random_VFlip(p=0.5):
     return py_transforms.RandomVerticalFlip(p)
 def Random_HFlip(p=0.5):
     return py_transforms.RandomHorizontalFlip(p)
+

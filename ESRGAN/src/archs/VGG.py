@@ -54,9 +54,7 @@ class Vgg(nn.Cell):
     Returns:
         Tensor, infer output tensor.
 
-    Examples:
-        >>> Vgg([64, 64, 'M', 128, 128, 'M', 256, 256, 256, 'M', 512, 512, 512, 'M', 512, 512, 512, 'M'],
-        >>>     num_classes=1000, batch_norm=False, batch_size=1)
+
     """
 
     def __init__(self, base, num_classes=1000, batch_norm=False, batch_size=1):
@@ -87,41 +85,19 @@ cfg = {
 
 
 def vgg16(num_classes=1000):
-    """
-    Get Vgg16 neural network with batch normalization.
-
-    Args:
-        num_classes (int): Class numbers. Default: 1000.
-
-    Returns:
-        Cell, cell instance of Vgg16 neural network with batch normalization.
-
-    Examples:
-        >>> vgg16(num_classes=1000)
-    """
 
     net = Vgg(cfg['16'], num_classes=num_classes, batch_norm=False)
     return net
 
 def vgg19(num_classes=1000):
-    """
-    Get Vgg16 neural network with batch normalization.
-
-    Args:
-        num_classes (int): Class numbers. Default: 1000.
-
-    Returns:
-        Cell, cell instance of Vgg16 neural network with batch normalization.
-
-    Examples:
-        >>> vgg16(num_classes=1000)
-    """
 
     net = Vgg(cfg['19'], num_classes=num_classes, batch_norm=False)
     return net
 
-
-
+"""
 model = vgg19()
 ce = model.layers[1:35]
 print(ce[0].parameters)
+
+"""
+
