@@ -15,11 +15,11 @@ class ResidualDenseBlock_5C(nn.Cell):
     def __init__(self, nf=64, gc=32,res_beta=0.2, bias=True):
         super(ResidualDenseBlock_5C, self).__init__()
         # gc: growth channel, i.e. intermediate channels
-        self.conv1 = nn.Conv2d(nf, gc, 3, 1, padding=1, has_bias=bias)
-        self.conv2 = nn.Conv2d(nf + gc, gc, 3, 1, padding=1, has_bias=bias)
-        self.conv3 = nn.Conv2d(nf + 2 * gc, gc, 3, 1, padding=1, has_bias=bias)
-        self.conv4 = nn.Conv2d(nf + 3 * gc, gc, 3, 1, padding=1, has_bias=bias)
-        self.conv5 = nn.Conv2d(nf + 4 * gc, nf, 3, 1, padding=1, has_bias=bias)
+        self.conv1 = nn.Conv2d(nf, gc, 3, 1, padding=1, has_bias=bias,pad_mode="pad")
+        self.conv2 = nn.Conv2d(nf + gc, gc, 3, 1, padding=1, has_bias=bias,pad_mode="pad")
+        self.conv3 = nn.Conv2d(nf + 2 * gc, gc, 3, 1, padding=1, has_bias=bias,pad_mode="pad")
+        self.conv4 = nn.Conv2d(nf + 3 * gc, gc, 3, 1, padding=1, has_bias=bias,pad_mode="pad")
+        self.conv5 = nn.Conv2d(nf + 4 * gc, nf, 3, 1, padding=1, has_bias=bias,pad_mode="pad")
         self.lrelu = nn.LeakyReLU(0.2)
         self.res_beta = res_beta
         self.cat = mindspore.ops.Concat(1)

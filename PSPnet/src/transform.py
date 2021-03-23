@@ -25,20 +25,6 @@ class Compose(object):
         dataset = dataset.map(operations=compose_py, input_columns=["img", "label"])
         return dataset
 
-class ToTensor(object):
-    # Converts numpy.ndarray (H x W x C) to a mindspore Tensor of shape (C x H x W).
-    def __call__(self, image, label):
-        if not isinstance(image, np.ndarray) or not isinstance(label, np.ndarray):
-            raise (RuntimeError("need data readed by cv2.imread()].\n"))
-        if len(image.shape) > 3 or len(image.shape) < 2:
-            raise (RuntimeError("np.ndarray with 3 dims or 2 dims.\n"))
-        if len(image.shape) == 2:
-            image = np.expand_dims(image, axis=2)
-
-        image = Tensor(image.transpose((2, 0, 1)),dtype=mindspore.float32)
-        label = Tensor(label,dtype=mindspore.int64)
-        return image, label
-
 def Normalize(mean,std):
     normalize_op = C_trans_V.Normalize(mean=mean,std=std)
     return normalize_op
@@ -105,7 +91,8 @@ def Rotate_label(rotate_angle,ignore_index,p):
     else:
         rotate_op = C_trans_V.RandomRotation(0,resample=Inter.NEAREST, expand=True,fill_value=ignore_index)
     return rotate_op
-
+# 这三个需要接入OPENCV2处理 与现有框架不兼容
+"""
 class RandomGaussianBlur(object):
     # 无法直接应用于框架中，需要在读取数据时处理
     def __init__(self, radius=5):
@@ -129,3 +116,4 @@ class BGR2RGB(object):
     def __call__(self, image, label):
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
         return image, label
+"""
