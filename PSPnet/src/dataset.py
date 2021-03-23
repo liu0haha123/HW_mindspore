@@ -1,79 +1,81 @@
-import os
-import os.path
-import cv2
+import mindspore
+import mindspore.dataset as ds
 import numpy as np
+import os
+from PIL import Image
 
-IMG_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.ppm', '.bmp', '.pgm']
+EXTENSIONS = [".jpg", ".jpeg", ".png"]
 
-def is_image_file(filename):
-    filename_lower = filename.lower()
-    return any(filename_lower.endswith(extension) for extension in IMG_EXTENSIONS)
 
-def make_dataset(split='train', data_root=None, data_list=None):
-    assert split in ['train', 'val', 'test']
-    if not os.path.isfile(data_list):
-        raise (RuntimeError("Image list file do not exist: " + data_list + "\n"))
-    image_label_list = []
-    list_read = open(data_list).readlines()
-    print("Totally {} samples in {} set.".format(len(list_read), split))
-    print("Starting Checking image&label pair {} list...".format(split))
-    for line in list_read:
-        line = line.strip()
-        line_split = line.split(' ')
-        if split == 'test':
-            if len(line_split) != 1:
-                raise (RuntimeError("Image list file read line error : " + line + "\n"))
-            image_name = os.path.join(data_root, line_split[0])
-            label_name = image_name  # just set place holder for label_name, not for use
+def load_image(file):
+    return Image.open(file)
+
+
+def is_image(filename):
+    return any(filename.endswith(ext) for ext in EXTENSIONS)
+
+
+def image_path(root, basename, extension):
+    return os.path.join(root, '{basename}{extension}')
+
+
+def image_basename(filename):
+    return os.path.basename(os.path.splitext(filename)[0])
+
+
+def read_test_list(path):
+    with open(path, "r", encoding="utf-8") as G:
+        lines = G.readlines()
+        all_list = [l.rstrip("\n") for l in lines]
+
+    return all_list
+
+
+class VOC12Dataset():
+
+    def __init__(self, root_path, mode="train"):
+        self.mode = mode
+        if self.mode == "train" or self.mode == "dev":
+            self.images_root = os.path.join(root_path, "VOC2012traindev", 'JPEGImages')
+            self.labels_root = os.path.join(root_path, "VOC2012traindev", 'SegmentationClass')
+            self.filenames = [image_basename(f)
+                              for f in os.listdir(self.labels_root) if is_image(f)]
+        elif self.mode == "test":
+            self.images_root = os.path.join(root_path, "VOC2012test", 'JPEGImages')
+            self.filenames = read_test_list(
+                os.path.join(root_path, "VOC2012test", "ImageSets", "Segmentation", "test.txt"))
         else:
-            if len(line_split) != 2:
-                raise (RuntimeError("Image list file read line error : " + line + "\n"))
-            image_name = os.path.join(data_root, line_split[0])
-            label_name = os.path.join(data_root, line_split[1])
-        '''
-        following check costs some time
-        if is_image_file(image_name) and is_image_file(label_name) and os.path.isfile(image_name) and os.path.isfile(label_name):
-            item = (image_name, label_name)
-            image_label_list.append(item)
-        else:
-            raise (RuntimeError("Image list file line error : " + line + "\n"))
-        '''
-        item = (image_name, label_name)
-        image_label_list.append(item)
-    print("Checking image&label pair {} list done!".format(split))
-    return image_label_list
+            print("请指定数据集划分")
 
-
-class SemData():
-    def __init__(self,split='train', data_root=None, data_list=None):
-        self.split = split
-        self.data_list = make_dataset(split, data_root, data_list)
-        # self.transform = transform
-
-    def __len__(self):
-        return len(self.data_list)
+        if (self.mode == "train"):
+            self.filenames = self.filenames[:2600]
+        elif (self.mode == "eval"):
+            self.filenames = self.filenames[2600:]
+        elif (self.mode == "test"):
+            self.filenames = self.filenames
 
     def __getitem__(self, index):
-        image_path, label_path = self.data_list[index]
-        image = cv2.imread(
-            image_path, cv2.IMREAD_COLOR
-        )  # BGR 3 channel ndarray wiht shape H * W * 3
-        image = cv2.cvtColor(
-            image, cv2.COLOR_BGR2RGB
-        )  # convert cv2 read image from BGR order to RGB order
-        image = np.float32(image)
-        label = cv2.imread(
-            label_path, cv2.IMREAD_GRAYSCALE
-        )  # GRAY 1 channel ndarray with shape H * W
-        if image.shape[0] != label.shape[0] or image.shape[1] != label.shape[1]:
-            raise (
-                RuntimeError(
-                    "Image & label shape mismatch: "
-                    + image_path
-                    + " "
-                    + label_path
-                    + "\n"
-                )
-            )
-        # 转换的过程留到数据读取的部分
-        return image, label
+        if self.mode == "train" or self.mode == "dev":
+            filename = self.filenames[index]
+
+            with open(self.images_root + "/" + str(filename) + '.jpg', 'rb') as f:
+                image = load_image(f).convert('RGB')
+            with open(self.labels_root + "/" + str(filename) + '.png', 'rb') as f:
+                label = load_image(f).convert('P')
+
+            return (image, label)
+        else:
+            filename = self.filenames[index]
+
+            with open(self.images_root + "/" + str(filename) + '.jpg', 'rb') as f:
+                image = load_image(f).convert('RGB')
+
+            return (image, None)
+
+    def __len__(self):
+        return len(self.filenames)
+
+
+dataset_test = VOC12Dataset(root_path="/home/hoo/ms_dataset/VOC2012", mode="train")
+
+dataset = ds.GeneratorDataset(dataset_test, ["image", "label"], shuffle=False)
