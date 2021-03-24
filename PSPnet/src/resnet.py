@@ -348,15 +348,7 @@ class ResNet(nn.Cell):
 
     Returns:
         Tensor, output tensor.
-
-    Examples:
-        >>> ResNet(ResidualBlock,
-        >>>        [3, 4, 6, 3],
-        >>>        [64, 256, 512, 1024],
-        >>>        [256, 512, 1024, 2048],
-        >>>        [1, 2, 2, 2],
-        >>>        10)
-    """
+"""
 
     def __init__(self,
                  block,
@@ -439,8 +431,6 @@ class ResNet(nn.Cell):
         Returns:
             SequentialCell, the output layer.
 
-        Examples:
-            >>> _make_layer(ResidualBlock, 3, 128, 256, 2)
         """
         layers = []
 
@@ -572,7 +562,7 @@ def resnet101(class_num=1001):
                   [1, 2, 2, 2],
                   class_num)
 
-model= resnet101()
+model= resnet50()
 
 cell_n = model.cells_and_names()
 for c,n in cell_n:

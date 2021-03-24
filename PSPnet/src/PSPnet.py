@@ -46,8 +46,7 @@ class PSPNet(nn.Cell):
         classes=2,
         zoom_factor=8,
         use_ppm=True,
-        criterion=nn.SoftmaxCrossEntropyWithLogits(sparse=True),
-        pretrained=True,
+        criterion=nn.SoftmaxCrossEntropyWithLogits(sparse=True)
     ):
         super(PSPNet, self).__init__()
         assert layers in [50, 101, 152]
@@ -72,12 +71,12 @@ class PSPNet(nn.Cell):
             resnet.layer4,
         )
 
-        for n, m in self.layer3.cells_and_names():
+        for n, m in self.layer4.cells_and_names():
             if "conv2" in n:
                 m.dilation, m.padding, m.stride = (2, 2), (2, 2), (1, 1)
             elif "down_sample_layer.0" in n:
                 m.stride = (1, 1)
-        for n, m in self.layer4.named_modules():
+        for n, m in self.layer5.cells_and_names():
             if "conv2" in n:
                 m.dilation, m.padding, m.stride = (4, 4), (4, 4), (1, 1)
             elif "down_sample_layer.0" in n:
@@ -88,7 +87,7 @@ class PSPNet(nn.Cell):
             self.ppm = PPM(fea_dim, int(fea_dim / len(bins)), bins)
             fea_dim *= 2
         self.cls = nn.SequentialCell(
-            nn.Conv2d(fea_dim, 512, kernel_size=3, padding=1, bias=False),
+            nn.Conv2d(fea_dim, 512, kernel_size=3, padding=1, pad_mode="pad"),
             nn.BatchNorm2d(512),
             nn.ReLU(),
             nn.Dropout(dropout),
@@ -96,7 +95,7 @@ class PSPNet(nn.Cell):
         )
         if self.training:
             self.aux = nn.SequentialCell(
-                nn.Conv2d(1024, 256, kernel_size=3, padding=1, bias=False),
+                nn.Conv2d(1024, 256, kernel_size=3, padding=1, bias=False,pad_mode="pad"),
                 nn.BatchNorm2d(256),
                 nn.ReLU(),
                 nn.Dropout(dropout),
@@ -104,7 +103,7 @@ class PSPNet(nn.Cell):
             )
 
     def construct(self, x, y=None):
-        x_size = x.shape()
+        x_size = ops.Shape(x)
         assert (x_size[2] - 1) % 8 == 0 and (x_size[3] - 1) % 8 == 0
         h = int((x_size[2] - 1) / 8 * self.zoom_factor + 1)
         w = int((x_size[3] - 1) / 8 * self.zoom_factor + 1)
@@ -130,3 +129,8 @@ class PSPNet(nn.Cell):
             return x.max(1)[1], main_loss, aux_loss
         else:
             return x
+
+model = PSPNet()
+for c in model.cells():
+    if type(c)== nn.layer.container.SequentialCell:
+        print(c)

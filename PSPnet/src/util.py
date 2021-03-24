@@ -2,7 +2,7 @@ import os
 import numpy as np
 from PIL import Image
 
-
+import mindspore
 class AverageMeter(object):
     """Computes and stores the average and current value"""
     def __init__(self):
@@ -48,7 +48,21 @@ def intersectionAndUnion(output, target, K, ignore_index=255):
     return area_intersection, area_union, area_target
 
 
-
+def intersectionAndUnionGPU(output, target, K, ignore_index=255):
+    # 'K' classes, output and target sizes are N or N * L or N * H * W, each value in range 0 to K - 1.
+    assert output.Shape() == target.Shape()
+    reshape = mindspore.ops.Reshape()
+    output = reshape(output,(-1,))
+    target = reshape(target,(-1,))
+    output[target == ignore_index] = ignore_index
+    intersection = output[output == target]
+    hist = mindspore.ops.HistogramFixedWidth(5)
+    hist_range = mindspore.Tensor([0,K-1],mindspore.int16)
+    area_intersection = hist(intersection,hist_range)
+    area_output = hist(output, hist_range)
+    area_target = hist(target, hist_range)
+    area_union = area_output + area_target - area_intersection
+    return area_intersection, area_union, area_target
 
 def check_mkdir(dir_name):
     if not os.path.exists(dir_name):
@@ -76,3 +90,6 @@ def find_free_port():
     sock.close()
     # NOTE: there is still a chance the port could be taken by other processes.
     return port
+
+
+

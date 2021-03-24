@@ -153,3 +153,4 @@ def _check_and_coerce_cfg_value_type(replacement, original, key, full_key):
             original_type, replacement_type, original, replacement, full_key
         )
     )
+
