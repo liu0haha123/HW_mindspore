@@ -2,8 +2,7 @@ import mindspore
 import mindspore.nn as nn
 import mindspore.ops.functional as F
 import functools
-
-
+# 除了最后的整体网络 其他部分验证无误
 def make_layer(block, n_layers):
     layers = []
     for _ in range(n_layers):

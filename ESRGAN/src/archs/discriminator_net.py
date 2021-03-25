@@ -16,35 +16,35 @@ class VGGStyleDiscriminator128(nn.Cell):
     def __init__(self, num_in_ch, num_feat):
         super(VGGStyleDiscriminator128, self).__init__()
 
-        self.conv0_0 = nn.Conv2d(num_in_ch, num_feat, 3, 1, padding=1, has_bias=True)
-        self.conv0_1 = nn.Conv2d(num_feat, num_feat, 4, 2, padding=1, has_bias=False)
+        self.conv0_0 = nn.Conv2d(num_in_ch, num_feat, 3, 1, padding=1, has_bias=True,pad_mode="pad")
+        self.conv0_1 = nn.Conv2d(num_feat, num_feat, 4, 2, padding=1, has_bias=False,pad_mode="pad")
         self.bn0_1 = nn.BatchNorm2d(num_feat, affine=True)
 
-        self.conv1_0 = nn.Conv2d(num_feat, num_feat * 2, 3, 1, padding=1, has_bias=False)
+        self.conv1_0 = nn.Conv2d(num_feat, num_feat * 2, 3, 1, padding=1, has_bias=False,pad_mode="pad")
         self.bn1_0 = nn.BatchNorm2d(num_feat * 2, affine=True)
         self.conv1_1 = nn.Conv2d(
-            num_feat * 2, num_feat * 2, 4, 2, padding=1, has_bias=False)
+            num_feat * 2, num_feat * 2, 4, 2, padding=1, has_bias=False,pad_mode="pad")
         self.bn1_1 = nn.BatchNorm2d(num_feat * 2, affine=True)
 
         self.conv2_0 = nn.Conv2d(
-            num_feat * 2, num_feat * 4, 3, 1, padding=1, has_bias=False)
+            num_feat * 2, num_feat * 4, 3, 1, padding=1, has_bias=False,pad_mode="pad")
         self.bn2_0 = nn.BatchNorm2d(num_feat * 4, affine=True)
         self.conv2_1 = nn.Conv2d(
-            num_feat * 4, num_feat * 4, 4, 2, padding=1, has_bias=False)
+            num_feat * 4, num_feat * 4, 4, 2, padding=1, has_bias=False,pad_mode="pad")
         self.bn2_1 = nn.BatchNorm2d(num_feat * 4, affine=True)
 
         self.conv3_0 = nn.Conv2d(
-            num_feat * 4, num_feat * 8, 3, 1, padding=1, has_bias=False)
+            num_feat * 4, num_feat * 8, 3, 1, padding=1, has_bias=False,pad_mode="pad")
         self.bn3_0 = nn.BatchNorm2d(num_feat * 8, affine=True)
         self.conv3_1 = nn.Conv2d(
-            num_feat * 8, num_feat * 8, 4, 2, padding=1, has_bias=False)
+            num_feat * 8, num_feat * 8, 4, 2, padding=1, has_bias=False,pad_mode="pad")
         self.bn3_1 = nn.BatchNorm2d(num_feat * 8, affine=True)
 
         self.conv4_0 = nn.Conv2d(
-            num_feat * 8, num_feat * 8, 3, 1, padding=1, has_bias=False)
+            num_feat * 8, num_feat * 8, 3, 1, padding=1, has_bias=False,pad_mode="pad")
         self.bn4_0 = nn.BatchNorm2d(num_feat * 8, affine=True)
         self.conv4_1 = nn.Conv2d(
-            num_feat * 8, num_feat * 8, 4, 2, padding=1, has_bias=False)
+            num_feat * 8, num_feat * 8, 4, 2, padding=1, has_bias=False,pad_mode="pad")
         self.bn4_1 = nn.BatchNorm2d(num_feat * 8, affine=True)
 
         self.linear1 = nn.Dense(num_feat*8*4*4,100)
@@ -52,6 +52,7 @@ class VGGStyleDiscriminator128(nn.Cell):
         self.lrelu = nn.LeakyReLU(0.2)
         self.flatten = nn.Flatten()
     def construct(self, x):
+
         assert x.size(2) == 128 and x.size(3) == 128, (
             f'Input spatial size must be 128x128, '
             f'but received {x.size()}.')

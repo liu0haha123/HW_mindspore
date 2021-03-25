@@ -1,20 +1,37 @@
 import mindspore
 from mindspore import nn as nn
 from src.archs.VGG import  vgg19
+import mindspore.ops.functional as F
+class TVLoss(nn.Cell):
+    # 带正则化项的感知损失 Total Variation loss
+    def __init__(self,weight):
+        super(TVLoss, self).__init__()
+        self.weight = weight
 
-def PixelLoss(criterion="L1"):
-    # 感知损失
-    if criterion =="L1":
-        return nn.L1Loss()
-    elif criterion=="L2":
-        return nn.MSELoss()
+    def construct(self, X):
+        X_size = mindspore.ops.Shape(X)
+        batch_size = X_size[0]
+        h_x = X_size[2]
+        w_x = X_size[3]
+        count_h = self.tensor_size(X[:, :, 1:, :])
+        count_w = self.tensor_size(X[:, :, :, 1:])
+        pow = mindspore.ops.Pow()
+        sum = mindspore.ops.ReduceSum(keep_dims=True)
+        h_tv = pow((X[:, :, 1:, :] - X[:, :, :h_x - 1, :]), 2)
+        h_tv = sum(h_tv)
+        w_tv = pow((X[:, :, :, 1:] - X[:, :, :, :w_x - 1]), 2)
+        w_tv = sum(w_tv)
+        tv_loss = self.weight * 2 * (h_tv / count_h + w_tv / count_w) / batch_size
+        return tv_loss
 
-    else:
-        raise NotImplementedError(
-            'Loss type {} is not recognized.'.format(criterion))
+    @staticmethod
+    def tensor_size(t):
+        t_shape = mindspore.ops.Shape(t)
+        return t_shape[1] * t_shape[2] * t_shape[3]
 
 
 class PerceptualLoss(nn.cell):
+    # 内容损失
     def __init__(self):
         super(PerceptualLoss, self).__init__()
 
@@ -29,21 +46,21 @@ class PerceptualLoss(nn.cell):
         perception_loss = self.l1_loss(self.loss_network(high_resolution), self.loss_network(fake_high_resolution))
         return perception_loss
 
+
+
 def DiscriminatorLoss(gan_type='ragan'):
     """discriminator loss"""
     binary_cross_entropy = mindspore.ops.BinaryCrossEntropy()
     cross_entropy = binary_cross_entropy
     sigma = mindspore.ops.Sigmoid
-    oneslike = mindspore.ops.OnesLike()
-    zeroslike = mindspore.ops.ZerosLike()
     def discriminator_loss_ragan(hr, sr):
         return 0.5 * (
-            cross_entropy(oneslike(hr), sigma(hr - mindspore.ops.ReduceMean(sr))) +
-            cross_entropy(zeroslike(sr), sigma(sr -  mindspore.ops.ReduceMean(hr))))
+            cross_entropy(F.ones_like(hr), sigma(hr - mindspore.ops.ReduceMean(sr))) +
+            cross_entropy(F.zeros_like(sr), sigma(sr -  mindspore.ops.ReduceMean(hr))))
 
     def discriminator_loss(hr, sr):
-        real_loss = cross_entropy(oneslike(hr), sigma(hr))
-        fake_loss = cross_entropy(zeroslike(sr), sigma(sr))
+        real_loss = cross_entropy(F.ones_like(hr), sigma(hr))
+        fake_loss = cross_entropy(F.zeros_like(sr), sigma(sr))
         return real_loss + fake_loss
 
     if gan_type == 'ragan':
@@ -59,15 +76,13 @@ def GeneratorLoss(gan_type='ragan'):
     binary_cross_entropy = mindspore.ops.BinaryCrossEntropy()
     cross_entropy = binary_cross_entropy
     sigma = mindspore.ops.Sigmoid
-    oneslike = mindspore.ops.OnesLike()
-    zeroslike = mindspore.ops.ZerosLike()
 
     def generator_loss_ragan(hr, sr):
         return 0.5 * (
-            cross_entropy(oneslike(sr), sigma(sr - mindspore.ops.ReduceMean(hr))) +
-            cross_entropy(zeroslike(sr), sigma(hr -  mindspore.ops.ReduceMean(sr))))
+            cross_entropy(F.ones_like(sr), sigma(sr - mindspore.ops.ReduceMean(hr))) +
+            cross_entropy(F.zeros_like(sr), sigma(hr -  mindspore.ops.ReduceMean(sr))))
     def generator_loss(hr, sr):
-        return cross_entropy(oneslike(sr), sigma(sr))
+        return cross_entropy(F.ones_like(sr), sigma(sr))
 
     if gan_type == 'ragan':
         return generator_loss_ragan

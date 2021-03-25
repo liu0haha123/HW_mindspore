@@ -1,8 +1,14 @@
 import mindspore.nn as nn
 import mindspore.ops as ops
 from src.resnet import resnet50, resnet101
-
-
+# 注意所有的shape的返回值都是tuple
+"""
+        定义形状 初始化权重 应用权重
+        weight_shape = (out_channel, in_channel, 1, 1)
+        weight = Tensor(kaiming_normal(weight_shape, mode="fan_out", nonlinearity='relu'))
+        nn.Conv2d(in_channel, out_channel, kernel_size=1, stride=stride,
+                         padding=0, pad_mode='pad', weight_init=weight)
+"""
 class PPM(nn.Cell):
     def __init__(self, in_dim, reduction_dim, bins):
         super(PPM, self).__init__()
@@ -129,8 +135,3 @@ class PSPNet(nn.Cell):
             return x.max(1)[1], main_loss, aux_loss
         else:
             return x
-
-model = PSPNet()
-for c in model.cells():
-    if type(c)== nn.layer.container.SequentialCell:
-        print(c)

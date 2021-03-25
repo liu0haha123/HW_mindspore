@@ -10,6 +10,10 @@ import numpy as np
 import math
 from matplotlib.colors import rgb_to_hsv, hsv_to_rgb
 import cv2
+import mindspore.common.dtype as mstype
+import mindspore.dataset.engine as de
+import mindspore.dataset.vision.c_transforms as C
+import mindspore.dataset.transforms.c_transforms as C2
 
 num_classes_VOC = 21
 num_classes_ADE = 150
@@ -102,12 +106,12 @@ def read_ade20k_image_label_list(data_dir, mode):
 
 
 class ADE20k():
-    def __init__(self, data_dir, aug= True,mode="train"):
+    def __init__(self, root_path,num_classes, aug= True,mode="train"):
         super(ADE20k, self).__init__()
-        self.data_dir = data_dir
+        self.data_dir = root_path
         self.mode = mode
         self.aug = aug
-        self.num_classes = num_classes_ADE
+        self.num_classes = num_classes
         self.image_list, self.label_list = read_ade20k_image_label_list(self.data_dir, mode)
         assert len(self.image_list) > 0, 'No images are found.'
         print('Database has %d images.' % len(self.image_list))
@@ -302,6 +306,81 @@ class VOC12Dataset():
     def __len__(self):
         return len(self.filenames)
 
+def create_dataset(dataset_name,dataset_path,mode,config,repeat_num=1):
+    """
+    创建语义分割的数据集.
+
+    Args:
+        dataset_name（string）：指定数据集名称
+        dataset_path (string): 指定数据集路径
+        mode :  dataset is used for train or eval.
+        config: configuration
+        repeat_num (int): The repeat times of dataset. Default: 1.
+    Returns:
+        Dataset.
+    """
+
+
+    device_id = 0
+    device_num = 1
+    if config.platform == "GPU":
+        if config.run_distribute:
+            from mindspore.communication.management import get_rank, get_group_size
+            device_id = get_rank()
+            device_num = get_group_size()
+    elif config.platform == "Ascend":
+        device_id = int(os.getenv('DEVICE_ID'))
+        device_num = int(os.getenv('RANK_SIZE'))
+    if mode == "train":
+        do_shuffle = True
+        if dataset_name == "VOC2012":
+            dataset = VOC12Dataset(root_path=dataset_path, num_classes=num_classes_VOC, mode=mode)
+        elif dataset_name == "ADE20K":
+            dataset = ADE20k(root_path=dataset_path, num_classes=num_classes_ADE, mode=mode)
+    else:
+        do_shuffle = False
+        if dataset_name == "VOC2012":
+            dataset = VOC12Dataset(root_path=dataset_path, aug=False,num_classes=num_classes_VOC, mode=mode)
+        elif dataset_name == "ADE20K":
+            dataset = ADE20k(root_path=dataset_path, aug=False,num_classes=num_classes_ADE, mode=mode)
+    if device_num == 1 or not (mode=="train"):
+        ds = de.GeneratorDataset(dataset_path, num_parallel_workers=4, shuffle=do_shuffle)
+    else:
+        ds = de.GeneratorDataset(dataset_path, num_parallel_workers=4, shuffle=do_shuffle,
+                               num_shards=device_num, shard_id=device_id)
+
+    resize_height = config.image_height
+    resize_width = config.image_width
+    buffer_size = 100
+
+
+    # define map operations
+    random_horizontal_flip_op = C.RandomHorizontalFlip(device_id / (device_id + 1))
+    resize_op = C.Resize((resize_height, resize_width))
+    normalize_op = C.Normalize([0.4914, 0.4822, 0.4465], [0.2023, 0.1994, 0.2010])
+    change_swap_op = C.HWC2CHW()
+    trans = []
+    if mode=="train":
+        trans += [random_horizontal_flip_op]
+
+    trans += [resize_op, normalize_op, change_swap_op]
+
+    #type_cast_op = C2.TypeCast(mstype.int32)
+
+    ds = ds.map(input_columns="label", operations=trans)
+    ds = ds.map(input_columns="image", operations=trans)
+
+
+    # apply shuffle operations
+    ds = ds.shuffle(buffer_size=buffer_size)
+
+    # apply batch operations
+    ds = ds.batch(config.batch_size, drop_remainder=True)
+
+    # apply dataset repeat operation
+    ds = ds.repeat(repeat_num)
+
+    return ds
 
 """
 dataset = ADE20k(data_dir="/home/hoo/ms_dataset/ADE", mode="train")

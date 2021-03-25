@@ -12,24 +12,24 @@ from PIL import Image
 
 
 def CE_Loss(inputs,target,num_classes):
-    n, c, h, w = ops.Shape(inputs)
-    nt, ht, wt = ops.Shape(inputs)
+    n, c, h, w = list(inputs.shape)
+    nt, ht, wt = list(target.shape)
     reshape = ops.Reshape()
     transpose = ops.Transpose()
     Resize = ops.ResizeBilinear(size=(ht,wt),align_corners=True)
     if h != ht and w != wt:
         inputs = Resize(inputs)
     temp_inputs = transpose(transpose(inputs,(0,2,1,3)),(0,1,3,2))
-    temp_inputs = reshape(temp_inputs,(-1,c))
+    temp_inputs = reshape(temp_inputs,(-1,))
 
     temp_target = reshape(target,-1)
-    # 缺失不带softmax的NLLLoss
-    CE_Loss = None
+    SCEL = nn.SoftmaxCrossEntropyWithLogits()
+    CE_Loss = SCEL(temp_inputs,temp_target)
     return CE_Loss
 
 def Dice_Loss(inputs,target,beta=1,smooth=1e-5):
-    n, c, h, w = ops.Shape(inputs)
-    nt, ht, wt, ct = ops.Shape(inputs)
+    n, c, h, w = list(inputs.shape)
+    nt, ht, wt, ct = list(target.shape)
     reshape = ops.Reshape()
     transpose = ops.Transpose()
     softmax = ops.Softmax()
@@ -56,8 +56,8 @@ def Dice_Loss(inputs,target,beta=1,smooth=1e-5):
 
 
 def f_score(inputs, target, beta=1, smooth=1e-5, threhold=0.5):
-    n, c, h, w = ops.Shape(inputs)
-    nt, ht, wt, ct = ops.Shape(inputs)
+    n, c, h, w = list(inputs.shape)
+    nt, ht, wt, ct = list(target.shape)
     reshape = ops.Reshape()
     transpose = ops.Transpose()
     softmax = ops.Softmax()
@@ -66,6 +66,7 @@ def f_score(inputs, target, beta=1, smooth=1e-5, threhold=0.5):
     Resize = ops.ResizeBilinear(size=(ht,wt),align_corners=True)
     gt = ops.Greater()
     cast = ops.Cast()
+    # 计算部分
     if h != ht and w != wt:
         inputs = Resize(inputs)
         inputs = cast(inputs,mindspore.float32)
