@@ -11,7 +11,7 @@ import numpy as np
 from PIL import Image
 
 
-def CE_Loss(inputs,target,num_classes):
+def CE_Loss(inputs,target):
     n, c, h, w = list(inputs.shape)
     nt, ht, wt = list(target.shape)
     reshape = ops.Reshape()
@@ -47,8 +47,8 @@ def Dice_Loss(inputs,target,beta=1,smooth=1e-5):
     #   计算dice loss
     #--------------------------------------------#
     tp = sum(temp_target[...,:-1] * temp_inputs, axis=[0,1])
-    fp = sum(temp_inputs                       , axis=[0,1]) - tp
-    fn = sum(temp_target[...,:-1]              , axis=[0,1]) - tp
+    fp = sum(temp_inputs, axis=[0,1]) - tp
+    fn = sum(temp_target[...,:-1], axis=[0,1]) - tp
 
     score = ((1 + beta ** 2) * tp + smooth) / ((1 + beta ** 2) * tp + beta ** 2 * fn + fp + smooth)
     dice_loss = 1 - mean(score)

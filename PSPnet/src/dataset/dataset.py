@@ -225,8 +225,6 @@ class VOC12Dataset():
         return np.random.rand() * (b - a) + a
 
     def get_random_data(self, image, label, input_shape, jitter=.3, hue=.1, sat=1.5, val=1.5):
-        label = Image.fromarray(np.array(label))
-
         h, w = input_shape
         # resize image
         rand_jit1 = rand(1 - jitter, 1 + jitter)

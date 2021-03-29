@@ -2,12 +2,14 @@ import mindspore
 from mindspore import nn as nn
 from src.archs.VGG import  vgg19
 import mindspore.ops.functional as F
+from mindspore.nn.loss.loss import _Loss
 class TVLoss(nn.Cell):
     # 带正则化项的感知损失 Total Variation loss
     def __init__(self,weight):
         super(TVLoss, self).__init__()
         self.weight = weight
-
+        self.pow = mindspore.ops.Pow()
+        self.sum = mindspore.ops.ReduceSum(keep_dims=True)
     def construct(self, X):
         X_size = mindspore.ops.Shape(X)
         batch_size = X_size[0]
@@ -15,12 +17,11 @@ class TVLoss(nn.Cell):
         w_x = X_size[3]
         count_h = self.tensor_size(X[:, :, 1:, :])
         count_w = self.tensor_size(X[:, :, :, 1:])
-        pow = mindspore.ops.Pow()
-        sum = mindspore.ops.ReduceSum(keep_dims=True)
-        h_tv = pow((X[:, :, 1:, :] - X[:, :, :h_x - 1, :]), 2)
-        h_tv = sum(h_tv)
-        w_tv = pow((X[:, :, :, 1:] - X[:, :, :, :w_x - 1]), 2)
-        w_tv = sum(w_tv)
+
+        h_tv = self.pow((X[:, :, 1:, :] - X[:, :, :h_x - 1, :]), 2)
+        h_tv = self.sum(h_tv)
+        w_tv = self.pow((X[:, :, :, 1:] - X[:, :, :, :w_x - 1]), 2)
+        w_tv = self.sum(w_tv)
         tv_loss = self.weight * 2 * (h_tv / count_h + w_tv / count_w) / batch_size
         return tv_loss
 
