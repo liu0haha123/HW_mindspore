@@ -20,10 +20,23 @@ num_classes_ADE = 150
 EXTENSIONS = [".jpg", ".jpeg", ".png"]
 VOC_image_size = [473, 473, 3]
 
+
+"""
+def find_data(dataset="ADE20k"):
+    if dataset == "ADE20k":
+        img_mean = np.array((122.67891434, 116.66876762, 104.00698793), dtype=np.float32)  # RGB, SBD/Pascal VOC.
+        num_classes = 150
+    else:
+        raise ValueError("Unknown database %s" % dataset)
+
+    return img_mean, num_classes
+"""
+
 def load_image(file):
     return Image.open(file)
 
 def letterbox_image(image, label, size):
+    # 随机裁剪已有大小的图像不涉及其他增广
     label = Image.fromarray(np.array(label))
     '''resize image with unchanged aspect ratio using padding'''
     iw, ih = image.size
@@ -63,18 +76,6 @@ def read_test_list(path):
         all_list = [l.rstrip("\n") for l in lines]
 
     return all_list
-
-
-"""
-def find_data(dataset="ADE20k"):
-    if dataset == "ADE20k":
-        img_mean = np.array((122.67891434, 116.66876762, 104.00698793), dtype=np.float32)  # RGB, SBD/Pascal VOC.
-        num_classes = 150
-    else:
-        raise ValueError("Unknown database %s" % dataset)
-
-    return img_mean, num_classes
-"""
 
 
 def load_img(filepath):
@@ -218,8 +219,8 @@ class VOC12Dataset():
             self.filenames = self.filenames[:2600]
         elif (self.mode == "eval"):
             self.filenames = self.filenames[2600:]
-        elif (self.mode == "test"):
-            self.filenames = self.filenames
+        else:
+            print("请指定数据集划分")
 
     def rand(self, a=0, b=1):
         return np.random.rand() * (b - a) + a
@@ -296,7 +297,7 @@ class VOC12Dataset():
         # 转化成one_hot的形式
         seg_labels = np.eye(self.num_classes + 1)[png.reshape([-1])]
         seg_labels = seg_labels.reshape((int(VOC_image_size[0]), int(VOC_image_size[1]), self.num_classes + 1))
-
+        # 默认的读入格式是NHWC注意转换成NCWH
         #jpg = np.transpose(np.array(jpg), [2, 0, 1]) / 255
         jpg = np.array(jpg)/255
         return jpg, png, seg_labels

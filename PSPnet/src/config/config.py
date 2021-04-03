@@ -17,8 +17,4 @@ pspnet_resnet50 = {
 #   是否使用辅助分支
 #   会占用大量显存
 "aux_branch": False,
-#   下采样的倍数
-#   16显存占用小
-#   8显存占用大
-"downsample_factor" : 16
 }

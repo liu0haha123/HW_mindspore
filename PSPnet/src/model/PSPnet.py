@@ -3,8 +3,10 @@ import mindspore.ops as ops
 from src.model.resnet import resnet50
 import mindspore.ops.functional as F
 from mindspore import load_checkpoint,load_param_into_net
+
+
 class ResNet(nn.Cell):
-    def __init__(self, dilate_scale,pretrained_path,pretrained=True):
+    def __init__(self,pretrained_path,pretrained=False):
         super(ResNet, self).__init__()
         resnet = resnet50(1000)
         if pretrained:
@@ -72,8 +74,7 @@ class _PSPModule(nn.Cell):
         )
 
     def _make_stages(self, in_channels, out_channels, bin_sz, norm_layer):
-        #prior = nn.AdaptiveAvgPool2d(output_size=bin_sz)
-        prior = None
+        prior = nn.AvgPool2d(kernel_size=1)
         conv = nn.Conv2d(in_channels, out_channels, kernel_size=1, bias=False)
         bn = norm_layer(out_channels)
         relu = nn.ReLU()
@@ -96,8 +97,8 @@ class _PSPModule(nn.Cell):
 class PSPNet(nn.Cell):
     def __init__(
         self,
-        num_classes,
-        downsample_factor,
+        num_classes=21,
+        downsample_factor=8,
         backbone="resnet50",
         pretrained=True,
         aux_branch=True,
@@ -141,17 +142,13 @@ class PSPNet(nn.Cell):
                 nn.Conv2d(out_channel // 8, num_classes, kernel_size=1),
             )
 
-        self.initialize_weights(self.master_branch)
-
     def forward(self, x):
         x_size = list(x.shape)
         input_size = (x_size[2], x_size[3])
         resize_ops = ops.ResizeBilinear(size=input_size,align_corners=True)
         x_aux, x = self.backbone(x)
         output = self.master_branch(x)
-        output = resize_ops(
-            output
-        )
+        output = resize_ops(output)
         if self.aux_branch:
             output_aux = self.auxiliary_branch(x_aux)
             output_aux = resize_ops(
