@@ -94,10 +94,3 @@ def vgg19(num_classes=1000):
     net = Vgg(cfg['19'], num_classes=num_classes, batch_norm=False)
     return net
 
-"""
-model = vgg19()
-ce = model.layers[1:35]
-print(ce[0].parameters)
-
-"""
-

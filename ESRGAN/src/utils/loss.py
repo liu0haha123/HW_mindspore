@@ -1,34 +1,19 @@
 import mindspore
 from mindspore import nn as nn
-from src.archs.VGG import  vgg19
+from src.model.VGG import vgg19
 import mindspore.ops.functional as F
-from mindspore.nn.loss.loss import _Loss
-class TVLoss(nn.Cell):
-    # 带正则化项的感知损失 Total Variation loss
-    def __init__(self,weight):
-        super(TVLoss, self).__init__()
-        self.weight = weight
-        self.pow = mindspore.ops.Pow()
-        self.sum = mindspore.ops.ReduceSum(keep_dims=True)
-    def construct(self, X):
-        X_size = mindspore.ops.Shape(X)
-        batch_size = X_size[0]
-        h_x = X_size[2]
-        w_x = X_size[3]
-        count_h = self.tensor_size(X[:, :, 1:, :])
-        count_w = self.tensor_size(X[:, :, :, 1:])
 
-        h_tv = self.pow((X[:, :, 1:, :] - X[:, :, :h_x - 1, :]), 2)
-        h_tv = self.sum(h_tv)
-        w_tv = self.pow((X[:, :, :, 1:] - X[:, :, :, :w_x - 1]), 2)
-        w_tv = self.sum(w_tv)
-        tv_loss = self.weight * 2 * (h_tv / count_h + w_tv / count_w) / batch_size
-        return tv_loss
+class PixelLoss(nn.Cell):
+    # 感知损失
+    def __init__(self,criterion='l1'):
+        super(PixelLoss, self).__init__()
+        if criterion == 'l1':
+            self.loss = nn.L1Loss()
+        elif criterion == 'l2':
+            self.loss = nn.MSELoss()
 
-    @staticmethod
-    def tensor_size(t):
-        t_shape = mindspore.ops.Shape(t)
-        return t_shape[1] * t_shape[2] * t_shape[3]
+    def construct(self, hr,sr):
+        return self.loss(hr,sr)
 
 
 class PerceptualLoss(nn.cell):
@@ -43,8 +28,10 @@ class PerceptualLoss(nn.cell):
         self.loss_network = loss_network
         self.l1_loss = nn.L1Loss()
 
-    def forward(self, high_resolution, fake_high_resolution):
-        perception_loss = self.l1_loss(self.loss_network(high_resolution), self.loss_network(fake_high_resolution))
+    def construct(self, high_resolution, fake_high_resolution):
+        # the input scale range is [0, 1] (vgg is [0, 255]).
+        # 12.75 is rescale factor for vgg featuremaps.
+        perception_loss = self.l1_loss((self.loss_network(high_resolution* 255.)/12.75), (self.loss_network(fake_high_resolution* 255.)/12.75))
         return perception_loss
 
 

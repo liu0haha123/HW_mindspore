@@ -85,12 +85,3 @@ class Dataset_DIV2K():
     def __len__(self):
         return len(self.filelist_img)
 
-
-base_dir = "/home/hoo/ms_dataset/DIV2K"
-dataset_test = Dataset_DIV2K(base_dir="/home/hoo/ms_dataset/DIV2K", patch_size=40, upscale_factor=1,
-                             downsample_factor=2, data_augmentation=True, mode="train")
-dataset = ds.GeneratorDataset(dataset_test, ["input", "target"], shuffle=True)
-
-for data in dataset.create_dict_iterator():
-    plt.imshow(data['target'].asnumpy().squeeze(), cmap=plt.cm.gray)
-    plt.show()

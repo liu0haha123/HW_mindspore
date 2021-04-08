@@ -9,53 +9,64 @@ import json
 from os.path import join
 import numpy as np
 from PIL import Image
+from mindspore.ops import operations as P
+from mindspore.ops import functional as F
+# 定义损失函数
+
+class CE_Loss(nn.Cell):
+    def __init__(self):
+        super(CE_Loss, self).__init__()
+        self.reshape = ops.Reshape()
+        self.transpose = ops.Transpose()
+        self.SoftmaxLoss = nn.SoftmaxCrossEntropyWithLogits(sparse=True,reduction="mean")
+        self.Shape = ops.Shape()
 
 
-def CE_Loss(inputs,target):
-    n, c, h, w = list(inputs.shape)
-    nt, ht, wt = list(target.shape)
-    reshape = ops.Reshape()
-    transpose = ops.Transpose()
-    Resize = ops.ResizeBilinear(size=(ht,wt),align_corners=True)
-    if h != ht and w != wt:
-        inputs = Resize(inputs)
-    temp_inputs = transpose(transpose(inputs,(0,2,1,3)),(0,1,3,2))
-    temp_inputs = reshape(temp_inputs,(-1,))
+    def construct(self, inputs,labels):
+        n, c, h, w = list(self.Shape(inputs))
+        temp_inputs = self.transpose(self.transpose(inputs, (0, 2, 1, 3)), (0, 1, 3, 2))
+        temp_inputs = self.reshape(temp_inputs,(-1,c))
+        temp_targets = labels.view(-1)
+        CEloss = self.SoftmaxLoss(temp_inputs,temp_targets)
 
-    temp_target = reshape(target,-1)
-    SCEL = nn.SoftmaxCrossEntropyWithLogits()
-    CE_Loss = SCEL(temp_inputs,temp_target)
-    return CE_Loss
-
-def Dice_Loss(inputs,target,beta=1,smooth=1e-5):
-    n, c, h, w = list(inputs.shape)
-    nt, ht, wt, ct = list(target.shape)
-    reshape = ops.Reshape()
-    transpose = ops.Transpose()
-    softmax = ops.Softmax()
-    Resize = ops.ResizeBilinear(size=(ht,wt),align_corners=True)
-    sum = ops.ReduceSum()
-    mean = ops.ReduceMean()
-    if h != ht and w != wt:
-        inputs = Resize(inputs)
-    temp_inputs = transpose(transpose(inputs,(0,2,1,3)),(0,1,3,2))
-    temp_inputs = reshape(temp_inputs,(-1,c))
-    temp_inputs = softmax(temp_inputs)
-    temp_target = reshape(target,(n,-1,ct))
-
-    #--------------------------------------------#
-    #   计算dice loss
-    #--------------------------------------------#
-    tp = sum(temp_target[...,:-1] * temp_inputs, axis=[0,1])
-    fp = sum(temp_inputs, axis=[0,1]) - tp
-    fn = sum(temp_target[...,:-1], axis=[0,1]) - tp
-
-    score = ((1 + beta ** 2) * tp + smooth) / ((1 + beta ** 2) * tp + beta ** 2 * fn + fp + smooth)
-    dice_loss = 1 - mean(score)
-    return dice_loss
+        return CEloss
 
 
-def f_score(inputs, target, beta=1, smooth=1e-5, threhold=0.5):
+class Dice_Loss(nn.Cell):
+    def __init__(self):
+        super(Dice_Loss, self).__init__()
+        self.reshape = ops.Reshape()
+        self.transpose = ops.Transpose()
+        self.sum = ops.ReduceSum()
+        self.mean = ops.ReduceMean()
+        self.softmax = nn.Softmax(-1)
+        self.beta = 1
+        self.smooth = 1e-5
+        self.Shape = ops.Shape()
+
+    def construct(self,inputs,labels):
+
+        n, c, h, w = list(self.Shape(inputs))
+        nt, ct, ht, wt = list(self.Shape(labels))
+        temp_inputs = self.transpose(self.transpose(inputs, (0, 2, 1, 3)), (0, 1, 3, 2))
+        temp_inputs = self.reshape(temp_inputs,(n,-1,c))
+        temp_target = self.reshape(labels,(n,-1,ct))
+
+        # --------------------------------------------#
+        #   计算dice loss
+        # --------------------------------------------#
+        tp = self.sum(temp_target[..., :] * temp_inputs, axis=[0, 1])
+        fp = self.sum(temp_inputs, axis=[0, 1]) - tp
+        fn = self.sum(temp_target[..., :], axis=[0, 1]) - tp
+
+        score = ((1 + self.beta ** 2) * tp + self.smooth) / ((1 + self.beta ** 2) * tp + self.beta ** 2 * fn + fp + self.smooth)
+        dice_loss = 1 - self.mean(score)
+        return dice_loss
+
+
+# 可以单独拿出来计算但是无法用于训练，只能用作监控指标
+
+def f_score_fun(inputs, target, beta=1, smooth=1e-5, threhold=0.5):
     n, c, h, w = list(inputs.shape)
     nt, ht, wt, ct = list(target.shape)
     reshape = ops.Reshape()
@@ -79,15 +90,15 @@ def f_score(inputs, target, beta=1, smooth=1e-5, threhold=0.5):
     #   计算dice系数
     # --------------------------------------------#
     temp_inputs = gt(temp_inputs, threhold)
-    tp = sum(temp_target[..., :-1] * temp_inputs, axis=[0, 1])
+    tp = sum(temp_target[..., :] * temp_inputs, axis=[0, 1])
     fp = sum(temp_inputs, axis=[0, 1]) - tp
-    fn = sum(temp_target[..., :-1], axis=[0, 1]) - tp
+    fn = sum(temp_target[..., :], axis=[0, 1]) - tp
 
     score = ((1 + beta ** 2) * tp + smooth) / ((1 + beta ** 2) * tp + beta ** 2 * fn + fp + smooth)
     score = mean(score)
     return score
 
-
+# 这部分用于后处理
 # 设标签宽W，长H
 def fast_hist(a, b, n):
     # --------------------------------------------------------------------------------#
@@ -171,23 +182,3 @@ def compute_mIoU(gt_dir, pred_dir, png_name_list, num_classes, name_classes):
     # -----------------------------------------------------------------#
     print('===> mIoU: ' + str(round(np.nanmean(mIoUs) * 100, 2)) + '; mPA: ' + str(round(np.nanmean(mPA) * 100, 2)))
     return mIoUs
-
-"""
-if __name__ == "__main__":
-    gt_dir = "VOCdevkit/VOC2007/SegmentationClass"
-    pred_dir = "miou_pr_dir"
-    png_name_list = open("VOCdevkit/VOC2007/ImageSets/Segmentation/val.txt", 'r').read().splitlines()
-    # ------------------------------#
-    #   分类个数+1
-    #   2+1
-    # ------------------------------#
-    num_classes = 21
-    # --------------------------------------------#
-    #   区分的种类，和json_to_dataset里面的一样
-    # --------------------------------------------#
-    name_classes = ["background", "aeroplane", "bicycle", "bird", "boat", "bottle", "bus", "car", "cat", "chair", "cow",
-                    "diningtable", "dog", "horse", "motorbike", "person", "pottedplant", "sheep", "sofa", "train",
-                    "tvmonitor"]
-    compute_mIoU(gt_dir, pred_dir, png_name_list, num_classes, name_classes)  # 执行计算mIoU的函数
-
-"""

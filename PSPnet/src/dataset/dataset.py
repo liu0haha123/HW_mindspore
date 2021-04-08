@@ -14,7 +14,8 @@ import mindspore.common.dtype as mstype
 import mindspore.dataset.engine as de
 import mindspore.dataset.vision.c_transforms as C
 import mindspore.dataset.transforms.c_transforms as C2
-
+from mindspore.communication.management import init, get_rank, get_group_size
+# 定义数据集的读取方式，不包含增广
 num_classes_VOC = 21
 num_classes_ADE = 150
 EXTENSIONS = [".jpg", ".jpeg", ".png"]
@@ -300,12 +301,28 @@ class VOC12Dataset():
         # 默认的读入格式是NHWC注意转换成NCWH
         #jpg = np.transpose(np.array(jpg), [2, 0, 1]) / 255
         jpg = np.array(jpg)/255
+
         return jpg, png, seg_labels
 
     def __len__(self):
         return len(self.filenames)
 
-def create_dataset(dataset_name,dataset_path,mode,config,repeat_num=1):
+
+def _get_rank_info():
+    """
+    get rank size and rank id
+    """
+    rank_size = int(os.environ.get("RANK_SIZE", 1))
+
+    if rank_size > 1:
+        rank_size = get_group_size()
+        rank_id = get_rank()
+    else:
+        rank_size = 1
+        rank_id = 0
+
+    return rank_size, rank_id
+def create_dataset(dataset_name,dataset_path,mode,platform,run_distribute,resize_shape,batch_size,repeat_num=1):
     """
     创建语义分割的数据集.
 
@@ -322,12 +339,12 @@ def create_dataset(dataset_name,dataset_path,mode,config,repeat_num=1):
 
     device_id = 0
     device_num = 1
-    if config.platform == "GPU":
-        if config.run_distribute:
+    if platform == "GPU":
+        if run_distribute:
             from mindspore.communication.management import get_rank, get_group_size
             device_id = get_rank()
             device_num = get_group_size()
-    elif config.platform == "Ascend":
+    elif platform == "Ascend":
         device_id = int(os.getenv('DEVICE_ID'))
         device_num = int(os.getenv('RANK_SIZE'))
     if mode == "train":
@@ -343,18 +360,18 @@ def create_dataset(dataset_name,dataset_path,mode,config,repeat_num=1):
         elif dataset_name == "ADE20K":
             dataset = ADE20k(root_path=dataset_path, aug=False,num_classes=num_classes_ADE, mode=mode)
     if device_num == 1 or not (mode=="train"):
-        ds = de.GeneratorDataset(dataset_path, num_parallel_workers=4, shuffle=do_shuffle)
+        ds = de.GeneratorDataset(dataset, num_parallel_workers=4, shuffle=do_shuffle)
     else:
-        ds = de.GeneratorDataset(dataset_path, num_parallel_workers=4, shuffle=do_shuffle,
+        ds = de.GeneratorDataset(dataset, num_parallel_workers=4, shuffle=do_shuffle,
                                num_shards=device_num, shard_id=device_id)
 
-    resize_height = config.image_height
-    resize_width = config.image_width
+    resize_height = resize_shape[0]
+    resize_width = resize_shape[1]
     buffer_size = 100
 
 
     # define map operations
-    random_horizontal_flip_op = C.RandomHorizontalFlip(device_id / (device_id + 1))
+    random_horizontal_flip_op = C.RandomHorizontalFlip(0.5)
     resize_op = C.Resize((resize_height, resize_width))
     normalize_op = C.Normalize([0.4914, 0.4822, 0.4465], [0.2023, 0.1994, 0.2010])
     change_swap_op = C.HWC2CHW()
@@ -374,28 +391,9 @@ def create_dataset(dataset_name,dataset_path,mode,config,repeat_num=1):
     ds = ds.shuffle(buffer_size=buffer_size)
 
     # apply batch operations
-    ds = ds.batch(config.batch_size, drop_remainder=True)
+    ds = ds.batch(batch_size, drop_remainder=True)
 
     # apply dataset repeat operation
     ds = ds.repeat(repeat_num)
 
     return ds
-
-"""
-dataset = ADE20k(data_dir="/home/hoo/ms_dataset/ADE", mode="train")
-
-ADE_data = ds.GeneratorDataset(dataset, ["input", "label"], shuffle=True)
-
-for data in ADE_data.create_dict_iterator():
-    print(type(data["input"]))
-    dataset_test = VOC12Dataset(root_path="/home/hoo/ms_dataset/VOC2012", num_classes=21,mode="train")
-dataset = ds.GeneratorDataset(dataset_test, ["image", "label","seg_label"], shuffle=False)
-
-for data in dataset.create_dict_iterator():
-    plt.subplot(1,2,1)
-    plt.imshow(data['image'].asnumpy())
-    plt.subplot(1, 2, 2)
-    plt.imshow(data["label"].asnumpy())
-    plt.show()
-
-"""

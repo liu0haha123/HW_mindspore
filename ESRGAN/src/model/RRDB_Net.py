@@ -50,31 +50,31 @@ class RRDB(nn.Cell):
 
 
 class RRDBNet(nn.Cell):
-    def __init__(self, in_nc, out_nc, nf, nb, gc=32):
+    def __init__(self, in_nc, out_nc, nf, nb,fea_size, gc=32):
         super(RRDBNet, self).__init__()
         RRDB_block_f = functools.partial(RRDB, nf=nf, gc=gc)
 
-        self.conv_first = nn.Conv2d(in_nc, nf, 3, 1, padding=1, has_bias=True)
+        self.conv_first = nn.Conv2d(in_nc, nf, 3, 1, padding=1, has_bias=True,pad_mode="pad",bias_init="zeros",weight_init="normal")
         self.RRDB_trunk = make_layer(RRDB_block_f, nb)
-        self.trunk_conv = nn.Conv2d(nf, nf, 3, 1, padding=1, has_bias=True)
+        self.trunk_conv = nn.Conv2d(nf, nf, 3, 1, padding=1, has_bias=True,pad_mode="pad")
         #### upsampling
-        self.upconv1 = nn.Conv2d(nf, nf, 3, 1, padding=1, has_bias=True)
-        self.upconv2 = nn.Conv2d(nf, nf, 3, 1, padding=1, has_bias=True)
-        self.HRconv = nn.Conv2d(nf, nf, 3, 1, padding=1, has_bias=True)
-        self.conv_last = nn.Conv2d(nf, out_nc, 3, 1, padding=1, has_bias=True)
-
+        self.upconv1 = nn.Conv2d(nf, nf, 3, 1, padding=1, has_bias=True,pad_mode="pad")
+        self.upconv2 = nn.Conv2d(nf, nf, 3, 1, padding=1, has_bias=True,pad_mode="pad")
+        self.HRconv = nn.Conv2d(nf, nf, 3, 1, padding=1, has_bias=True,pad_mode="pad")
+        self.conv_last = nn.Conv2d(nf, out_nc, 3, 1, padding=1, has_bias=True,pad_mode="pad")
         self.lrelu = nn.LeakyReLU(0.2)
+        # ResizeNearestNeighbor也需要scale factor
+        self.Resize_nearst = nn.ResizeBilinear()
+
 
     def construct(self, x):
         fea = self.conv_first(x)
         trunk = self.trunk_conv(self.RRDB_trunk(fea))
         fea = fea + trunk
-        #fea_size = mindspore.ops.Shape(fea)
-        fea_size = fea.Shape()
-        resize_interpolate_1 = mindspore.ops.ResizeBilinear(size=(2 * fea_size[-2], 2 * fea_size[-1]))
-        resize_interpolate_2 = mindspore.ops.ResizeBilinear(size=(4 * fea_size[-2], 4 * fea_size[-1]))
-        fea = self.lrelu(self.upconv1(resize_interpolate_1(fea)))
-        fea = self.lrelu(self.upconv2(resize_interpolate_2(fea)))
+
+
+        fea = self.lrelu(self.upconv1(self.Resize_nearst(fea,scale_factor=2)))
+        fea = self.lrelu(self.upconv2(self.Resize_nearst(fea,scale_factor=2)))
         out = self.conv_last(self.lrelu(self.HRconv(fea)))
 
         return out

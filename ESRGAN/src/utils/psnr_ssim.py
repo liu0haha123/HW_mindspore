@@ -1,7 +1,6 @@
 import cv2
 import numpy as np
-
-from src.metrics import reorder_image, to_y_channel
+from src.utils.metric_util import reorder_image, to_y_channel
 
 
 def calculate_psnr(img1,

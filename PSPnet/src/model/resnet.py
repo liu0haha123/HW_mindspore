@@ -12,7 +12,7 @@
 # See the License for the specific language governing permissions and
 # limitations under the License.
 # ============================================================================
-"""ResNet."""
+"""ResNet"""
 import math
 import numpy as np
 import mindspore.nn as nn

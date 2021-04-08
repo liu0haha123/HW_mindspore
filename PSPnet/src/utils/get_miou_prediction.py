@@ -11,7 +11,7 @@ from tqdm import tqdm
 
 from src.model.PSPnet import PSPNet
 
-
+# 导出图片，计算MIOU
 def letterbox_image(image, size):
     '''resize image with unchanged aspect ratio using padding'''
     iw, ih = image.size
