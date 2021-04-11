@@ -1,35 +1,59 @@
 import argparse
 import mindspore
-import os
 import time
-import random
-import numpy as np
-from mindspore import Tensor,DatasetHelper,nn
-from mindspore.nn import WithLossCell, TrainOneStepCell
+from mindspore.train.callback import ModelCheckpoint, CheckpointConfig
+from mindspore import Tensor,nn
+from mindspore.train.loss_scale_manager import FixedLossScaleManager
+from mindspore.train.model import Model
 from mindspore.nn.optim.momentum import Momentum
-from mindspore.common import dtype as mstype
+from mindspore.train.callback import LossMonitor, TimeMonitor
 from mindspore.communication.management import get_rank
-from mindspore.train.serialization import save_checkpoint
+from mindspore.train.serialization import load_param_into_net,load_checkpoint
+from mindspore.communication.management import init, get_rank, get_group_size
 from mindspore.common import set_seed
+from mindspore.context import ParallelMode
+from mindspore import context
 
-from src.dataset import dataset
+from src.dataset.dataset import get_dataset_VOC,get_dataset_ADE
 from src.model import PSPnet
 from src.config import config
-from src.utils import lr,metrics,util
-# 定义训练/验证时指定的可变参数
+from src.utils import metrics,util
+from src.utils.lr import get_lr
+
+class BuildTrainNetwork(nn.Cell):
+    def __init__(self, network, criterion):
+        super(BuildTrainNetwork, self).__init__()
+        self.network = network
+        self.criterion = criterion
+
+    def construct(self, input_data, label):
+        output = self.network(input_data)
+        net_loss = self.criterion(output, label)
+        return net_loss
 
 def parse_args():
     parser = argparse.ArgumentParser(description='PSPnet')
-    parser.add_argument('--platform', type=str, default="GPU", choices=("CPU", "GPU", "Ascend"),
+    parser.add_argument('--platform', type=str, default="Ascend", choices=("CPU", "GPU", "Ascend"),
                         help='run platform, only support CPU, GPU and Ascend')
-    parser.add_argument('--device_id', type=int, default=0,
+    parser.add_argument('--device_id', type=int, default=2,
                         help='device num')
     parser.add_argument('--batch_size', type=int, default=8,
                         help='batch_size')
     parser.add_argument('--epoch_size', type=int, default=10,
                         help='epoch_size')
-    parser.add_argument('--dataset_path', type=str, help='Dataset path')
-    parser.add_argument('--mode', type=str, default='train', help='train/eval')
+    parser.add_argument('--lst_path', type=str, default="./data/voc_train_lst.txt",help='Dataset List path')
+    parser.add_argument('--ckpt_pre_trained', type=str, default='eval', help='train/eval')
+    parser.add_argument('--loss_scale', type=float, default=3072.0, help='loss scale')
+    parser.add_argument("--rank", type=int, default=2, help="local rank of distributed")
+    parser.add_argument(
+        "--group_size", type=int, default=1, help="world size of distributed"
+    )
+    parser.add_argument(
+        "--save_steps", type=int, default=3000, help="steps interval for saving"
+    )
+    parser.add_argument(
+        "--keep_checkpoint_max", type=int, default=20, help="max checkpoint for saving"
+    )
 
     args = parser.parse_args()
     return args
@@ -40,61 +64,65 @@ def read_config():
 
 set_seed(1)
 
-if __name__ == '__main__':
+def train():
     args_opt = parse_args()
     config = read_config()
-    start = time.time()
     print(f"train args: {args_opt}\ncfg: {config}")
-    rank_size = mindspore.communication.get_local_rank_size()
-    device_id = args_opt.device_id
     platform = args_opt.platform
-    #set context and device init
-    util.context_device_init(platform,config.run_distribute,device_id,rank_size)
-    PSPnet_model = PSPnet.PSPNet(input_size=config.input_size[0:1],feature_size=15,num_classes=21,backbone="resnet50",pretrained=True,pretrained_path="",aux_branch=True)
+    # init multicards training
+    if config["run_distribute"]:
+        init()
+        group_size = get_group_size()
 
-    dataset_train = dataset.create_dataset("VOC2012",dataset_path=args_opt.dataset_path,mode=args_opt.mode,platform=platform,run_distribute=config.run_distribute,
-                                           resize_shape=config.resize_shape,batch_size=args_opt.batch_size,repeat_num=1)
-    # Currently, only Ascend support switch precision.
-    util.switch_precision(PSPnet_model, mstype.float16, platform)
-    epoch_size = args_opt.epoch_size
-    # define loss
-    loss = mindspore.nn.DiceLoss(smooth=1e-5)
+        parallel_mode = ParallelMode.DATA_PARALLEL
+        context.set_auto_parallel_context(parallel_mode=parallel_mode, gradients_mean=True, device_num=2)
+    PSPnet_model = PSPnet.PSPNet(feature_size=15,num_classes=21,backbone="resnet50",pretrained=True,pretrained_path=config["pretrained_path"],aux_branch=False)
+
+    dataset = get_dataset_VOC(num_classes=21,lst_path=args_opt.lst_path,aug=True,repeat=1,shard_num=args_opt.rank,shard_id=args_opt.group_size,
+                                        batch_size=8)
+    # loss
+    loss_ = metrics.SoftmaxCrossEntropyLoss(config["num_classes"], config["ignore_label"])
+    train_net = BuildTrainNetwork(PSPnet_model, loss_)
+
+    # load pretrained model
+    if args_opt.ckpt_pre_trained == "train":
+        param_dict = load_checkpoint(args_opt.ckpt_pre_trained)
+        load_param_into_net(train_net, param_dict)
+        print('load_model {} success'.format(args_opt.ckpt_pre_trained))
+    iters_per_check = 1000
     # get learning rate
-    lr = Tensor(lr.get_lr(global_step=0,
-                       lr_init=config.lr_init,
-                       lr_end=config.lr_end,
-                       lr_max=config.lr_max,
-                       warmup_epochs=config.warmup_epochs,
-                       total_epochs=epoch_size,
-                       steps_per_epoch=len(dataset_train)))
-    # define optimizer
-    opt = Momentum(filter(lambda x: x.requires_grad, PSPnet_model.get_parameters()), lr, config.momentum,
-                   config.weight_decay)
-    #构建网络
-    dataset_helper = DatasetHelper(dataset_train,sink_size=100,epoch_num=epoch_size)
-    network = WithLossCell(PSPnet_model, loss)
-    network = TrainOneStepCell(network, opt)
-    network.set_train()
-    rank = 0
-    if config.run_distribute:
-        rank = get_rank()
-    save_ckpt_path = os.path.join(config.save_checkpoint_path, 'ckpt_' + str(rank) + '/')
-    if not os.path.isdir(save_ckpt_path):
-        os.mkdir(save_ckpt_path)
+    lr = Tensor(get_lr(global_step=0,
+                       lr_init=config["lr_init"],
+                       lr_end=config["lr_end"],
+                       lr_max=config["lr_max"],
+                       warmup_epochs=config["warmup_epochs"],
+                       total_epochs=args_opt.epoch_size,
+                       steps_per_epoch=iters_per_check))
+    opt = Momentum(params=train_net.trainable_params(), learning_rate=lr, momentum=config["momentum"], weight_decay=0.0001,
+                      loss_scale=args_opt.loss_scale)
 
-    for epoch in range(epoch_size):
-        epoch_start = time.time()
-        losses = []
-        for data in dataset_helper:
-            inputs,label,seg_label = data[0],data[1],data[2]
-            loss = network(inputs,label)
-            losses.append(loss.asnumpy())
-        epoch_mseconds = (time.time()-epoch_start) * 1000
-        per_step_mseconds = epoch_mseconds / len(dataset_train)
-        print("epoch[{}/{}], iter[{}] cost: {:5.3f}, per step time: {:5.3f}, avg loss: {:5.3f}"\
-        .format(epoch + 1, epoch_size, len(dataset_train), epoch_mseconds, per_step_mseconds, np.mean(np.array(losses))))
-        if (epoch + 1) % config.save_checkpoint_epochs == 0:
-            save_checkpoint(PSPnet_model, os.path.join(save_ckpt_path, f"PSPnet_{epoch+1}.ckpt"))
-    print("total cost {:5.4f} s".format(time.time() - start))
+        # loss scale
+    manager_loss_scale = FixedLossScaleManager(args_opt.loss_scale, drop_overflow_update=False)
+    amp_level = "O0" if args_opt.platform == "CPU" else "O3"
+    model = Model(train_net, optimizer=opt, amp_level=amp_level, loss_scale_manager=manager_loss_scale)
 
+    # callback for saving ckpts
+    time_cb = TimeMonitor(data_size=iters_per_check)
+    loss_cb = LossMonitor()
+    cbs = [time_cb, loss_cb]
 
+    if args_opt.rank == 0:
+        config_ck = CheckpointConfig(save_checkpoint_steps=args_opt.save_steps,
+                                     keep_checkpoint_max=args_opt.keep_checkpoint_max)
+        ckpoint_cb = ModelCheckpoint(prefix=config["name"], directory="", config=config_ck)
+        cbs.append(ckpoint_cb)
+
+    model.train(
+        args_opt.epoch_size,
+        dataset,
+        callbacks=cbs,
+        dataset_sink_mode=False,
+    )
+
+if __name__ == "__main__":
+    train()

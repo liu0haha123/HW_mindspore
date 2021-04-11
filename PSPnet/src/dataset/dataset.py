@@ -5,16 +5,13 @@ import glob
 from PIL import Image, ImageOps
 import matplotlib.pyplot as plt
 import glob
-from random import shuffle
 import numpy as np
-import math
-from matplotlib.colors import rgb_to_hsv, hsv_to_rgb
 import cv2
 import mindspore.common.dtype as mstype
-import mindspore.dataset.engine as de
+import mindspore.dataset as ds
 import mindspore.dataset.vision.c_transforms as C
 import mindspore.dataset.transforms.c_transforms as C2
-from mindspore.communication.management import init, get_rank, get_group_size
+
 # 定义数据集的读取方式，不包含增广
 num_classes_VOC = 21
 num_classes_ADE = 150
@@ -22,19 +19,9 @@ EXTENSIONS = [".jpg", ".jpeg", ".png"]
 VOC_image_size = [473, 473, 3]
 
 
-"""
-def find_data(dataset="ADE20k"):
-    if dataset == "ADE20k":
-        img_mean = np.array((122.67891434, 116.66876762, 104.00698793), dtype=np.float32)  # RGB, SBD/Pascal VOC.
-        num_classes = 150
-    else:
-        raise ValueError("Unknown database %s" % dataset)
-
-    return img_mean, num_classes
-"""
-
 def load_image(file):
     return Image.open(file)
+
 
 def letterbox_image(image, label, size):
     # 随机裁剪已有大小的图像不涉及其他增广
@@ -58,6 +45,7 @@ def letterbox_image(image, label, size):
 
 def rand(a, b):
     return np.random.rand() * (b - a) + a
+
 
 def is_image(filename):
     return any(filename.endswith(ext) for ext in EXTENSIONS)
@@ -108,7 +96,7 @@ def read_ade20k_image_label_list(data_dir, mode):
 
 
 class ADE20k():
-    def __init__(self, root_path,num_classes, aug= True,mode="train"):
+    def __init__(self, root_path, num_classes, aug=True, mode="train"):
         super(ADE20k, self).__init__()
         self.data_dir = root_path
         self.mode = mode
@@ -194,34 +182,27 @@ class ADE20k():
         png[png >= self.num_classes] = self.num_classes
 
         # 转化成one_hot的形式
-        seg_labels = np.eye(self.num_classes + 1)[png.reshape([-1])]
-        seg_labels = seg_labels.reshape((int(VOC_image_size[0]), int(VOC_image_size[1]), self.num_classes + 1))
+        # seg_labels = np.eye(self.num_classes + 1)[png.reshape([-1])]
+        # seg_labels = seg_labels.reshape((int(VOC_image_size[0]), int(VOC_image_size[1]), self.num_classes + 1))
 
-        # jpg = np.transpose(np.array(jpg), [2, 0, 1]) / 255
-        jpg = np.array(jpg) / 255
-        return jpg, png, seg_labels
+        jpg = np.transpose(np.array(jpg), [2, 0, 1]) / 255
+        return jpg, png
 
 
 class VOC12Dataset():
 
-    def __init__(self, root_path, num_classes, aug=True, mode="train"):
-        self.mode = mode
+    def __init__(self, num_classes, lst_path, aug=True):
         self.aug = aug
         self.num_classes = num_classes
-        if self.mode == "train" or self.mode == "dev":
-            self.images_root = os.path.join(root_path, "VOC2012traindev", 'JPEGImages')
-            self.labels_root = os.path.join(root_path, "VOC2012traindev", 'SegmentationClass')
-            self.filenames = [image_basename(f)
-                              for f in os.listdir(self.labels_root) if is_image(f)]
-        else:
-            print("请指定数据集划分")
-
-        if (self.mode == "train"):
-            self.filenames = self.filenames[:2600]
-        elif (self.mode == "eval"):
-            self.filenames = self.filenames[2600:]
-        else:
-            print("请指定数据集划分")
+        self.img_path = []
+        self.label_path = []
+        with open(lst_path) as f:
+            lines = f.readlines()
+            print('number of samples:', len(lines))
+            for l in lines:
+                img_path, label_path = l.strip().split(' ')
+                self.img_path.append(img_path)
+                self.label_path.append(label_path)
 
     def rand(self, a=0, b=1):
         return np.random.rand() * (b - a) + a
@@ -279,11 +260,11 @@ class VOC12Dataset():
 
     def __getitem__(self, index):
 
-        filename = self.filenames[index]
-
-        with open(self.images_root + "/" + str(filename) + '.jpg', 'rb') as f:
+        img = self.img_path[index]
+        label = self.label_path[index]
+        with open(img, 'rb') as f:
             image = load_image(f).convert('RGB')
-        with open(self.labels_root + "/" + str(filename) + '.png', 'rb') as f:
+        with open(label, 'rb') as f:
             label = load_image(f).convert('P')
 
         if self.aug:
@@ -296,104 +277,35 @@ class VOC12Dataset():
         png[png >= self.num_classes] = self.num_classes
 
         # 转化成one_hot的形式
-        seg_labels = np.eye(self.num_classes + 1)[png.reshape([-1])]
-        seg_labels = seg_labels.reshape((int(VOC_image_size[0]), int(VOC_image_size[1]), self.num_classes + 1))
+        # seg_labels = np.eye(self.num_classes + 1)[png.reshape([-1])]
+        # seg_labels = seg_labels.reshape((int(VOC_image_size[0]), int(VOC_image_size[1]), self.num_classes + 1))
         # 默认的读入格式是NHWC注意转换成NCWH
-        #jpg = np.transpose(np.array(jpg), [2, 0, 1]) / 255
-        jpg = np.array(jpg)/255
+        jpg = np.transpose(np.array(jpg), [2, 0, 1]) / 255
 
-        return jpg, png, seg_labels
+        return jpg, png
 
     def __len__(self):
-        return len(self.filenames)
+        return len(self.img_path)
 
 
-def _get_rank_info():
-    """
-    get rank size and rank id
-    """
-    rank_size = int(os.environ.get("RANK_SIZE", 1))
-
-    if rank_size > 1:
-        rank_size = get_group_size()
-        rank_id = get_rank()
-    else:
-        rank_size = 1
-        rank_id = 0
-
-    return rank_size, rank_id
-def create_dataset(dataset_name,dataset_path,mode,platform,run_distribute,resize_shape,batch_size,repeat_num=1):
-    """
-    创建语义分割的数据集.
-
-    Args:
-        dataset_name（string）：指定数据集名称
-        dataset_path (string): 指定数据集路径
-        mode :  dataset is used for train or eval.
-        config: configuration
-        repeat_num (int): The repeat times of dataset. Default: 1.
-    Returns:
-        Dataset.
-    """
+def get_dataset_VOC(num_classes, lst_path, aug, repeat, shard_num, shard_id, batch_size):
+    dataset_VOC = VOC12Dataset(num_classes, lst_path, aug)
+    data_set = ds.GeneratorDataset(source=dataset_VOC, column_names=["data", "label"],
+                                   shuffle=True,
+                                   num_shards=shard_num, shard_id=shard_id)
+    data_set = data_set.shuffle(buffer_size=batch_size * 10)
+    data_set = data_set.batch(batch_size, drop_remainder=True)
+    data_set = data_set.repeat(repeat)
+    return data_set
 
 
-    device_id = 0
-    device_num = 1
-    if platform == "GPU":
-        if run_distribute:
-            from mindspore.communication.management import get_rank, get_group_size
-            device_id = get_rank()
-            device_num = get_group_size()
-    elif platform == "Ascend":
-        device_id = int(os.getenv('DEVICE_ID'))
-        device_num = int(os.getenv('RANK_SIZE'))
-    if mode == "train":
-        do_shuffle = True
-        if dataset_name == "VOC2012":
-            dataset = VOC12Dataset(root_path=dataset_path, num_classes=num_classes_VOC, mode=mode)
-        elif dataset_name == "ADE20K":
-            dataset = ADE20k(root_path=dataset_path, num_classes=num_classes_ADE, mode=mode)
-    else:
-        do_shuffle = False
-        if dataset_name == "VOC2012":
-            dataset = VOC12Dataset(root_path=dataset_path, aug=False,num_classes=num_classes_VOC, mode=mode)
-        elif dataset_name == "ADE20K":
-            dataset = ADE20k(root_path=dataset_path, aug=False,num_classes=num_classes_ADE, mode=mode)
-    if device_num == 1 or not (mode=="train"):
-        ds = de.GeneratorDataset(dataset, num_parallel_workers=4, shuffle=do_shuffle)
-    else:
-        ds = de.GeneratorDataset(dataset, num_parallel_workers=4, shuffle=do_shuffle,
-                               num_shards=device_num, shard_id=device_id)
+def get_dataset_ADE(num_classes, root_path, aug, mode, repeat, num_readers, shard_num, shard_id, batch_size):
+    dataset_VOC = ADE20k(root_path=root_path, num_classes=num_classes, aug=aug, mode=mode)
+    data_set = de.GeneratorDataset(dataset=dataset_VOC, columns_list=["data", "label"],
+                                   shuffle=True,
+                                   num_shards=shard_num, shard_id=shard_id)
+    data_set = data_set.shuffle(buffer_size=batch_size * 10)
+    data_set = data_set.batch(batch_size, drop_remainder=True)
+    data_set = data_set.repeat(repeat)
+    return data_set
 
-    resize_height = resize_shape[0]
-    resize_width = resize_shape[1]
-    buffer_size = 100
-
-
-    # define map operations
-    random_horizontal_flip_op = C.RandomHorizontalFlip(0.5)
-    resize_op = C.Resize((resize_height, resize_width))
-    normalize_op = C.Normalize([0.4914, 0.4822, 0.4465], [0.2023, 0.1994, 0.2010])
-    change_swap_op = C.HWC2CHW()
-    trans = []
-    if mode=="train":
-        trans += [random_horizontal_flip_op]
-
-    trans += [resize_op, normalize_op, change_swap_op]
-
-    #type_cast_op = C2.TypeCast(mstype.int32)
-
-    ds = ds.map(input_columns="label", operations=trans)
-    ds = ds.map(input_columns="image", operations=trans)
-
-
-    # apply shuffle operations
-    ds = ds.shuffle(buffer_size=buffer_size)
-
-    # apply batch operations
-    ds = ds.batch(batch_size, drop_remainder=True)
-
-    # apply dataset repeat operation
-    ds = ds.repeat(repeat_num)
-
-    return ds

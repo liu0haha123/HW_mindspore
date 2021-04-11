@@ -93,4 +93,3 @@ def vgg19(num_classes=1000):
 
     net = Vgg(cfg['19'], num_classes=num_classes, batch_norm=False)
     return net
-

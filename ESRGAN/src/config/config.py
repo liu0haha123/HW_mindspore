@@ -11,21 +11,13 @@ ESRGAN_config = {
 "D_nf":64,
 # training setting
 "niter": 400000,
-"lr_G": 1e-4,
-"lr_D": 1e-4,
+"lr_G": [1e-4,5e-5,2e-5,1e-5],
+"lr_D": [1e-4,5e-5,2e-5,1e-5],
 "lr_steps": [50000, 100000, 200000, 300000],
-"lr_rate": 0.5,
-
-"adam_beta1_G": 0.9,
-"adam_beta2_G": 0.99,
-"adam_beta1_D": 0.9,
-"adam_beta2_D": 0.99,
 
 "w_pixel": 1e-2,
-"pixel_criterion": "l1",
 
 "w_feature": 1.0,
-"feature_criterion":"l1",
 
 "w_gan": 5e-3,
 "gan_type": "gan",
@@ -47,12 +39,8 @@ PSNR_config = {
 
 # training setting
 "niter": 400000,
-"lr": 2e-4,
+"lr": [2e-4,1e-4,5e-5,2e-5],
 "lr_steps": [200000, 400000, 600000, 800000],
-"lr_rate": 0.5,
-
-"adam_beta1_G": 0.9,
-"adam_beta2_G": 0.99,
 
 "w_pixel": 1.0,
 "pixel_criterion": "l1",

@@ -2,7 +2,7 @@
 
 pspnet_resnet50_GPU = {
 # 日志目录
-"log_dir":"../logs/",
+"log_dir":"./logs/",
 #   输入图片的大小 默认顺序[h,w,c]
 "input_size":[473,473,3],
 #   分类个数+1
@@ -16,10 +16,12 @@ pspnet_resnet50_GPU = {
 #   种类多（十几类）时，如果batch_size比较小（10以下），那么设置为False
 "dice_loss": False,
 #   主干网络预训练权重的使用
-"pretrained" : False,
+"pretrained" : True,
 "backbone" : "resnet50",
 #   是否使用辅助分支
 #   会占用大量显存
+"ignore_label":255,
+# 忽略背景
 "aux_branch": False,
 # 是否分布式训练 默认否
 "run_distribute":False,
@@ -30,5 +32,9 @@ pspnet_resnet50_GPU = {
 "warmup_epochs": 0,
 # 优化器相关参数
 "momentum": 0.9,
-"weight_decay": 4e-5,
+# 网络声明时的其他参数
+"name":"pspnet_resnet50",
+"pretrained_link":"https://download.mindspore.cn/model_zoo/official/cv/resnet/resnet50_v1.5_ascend_0.3.0_cifar10_official_classification_20200718/resnet50.ckpt",
+"pretrained_path":"./data/resnet50.ckpt"
+
 }

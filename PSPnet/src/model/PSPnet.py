@@ -1,19 +1,20 @@
+import mindspore
 import mindspore.nn as nn
 import mindspore.ops as ops
+import numpy as np
 from src.model.resnet import resnet50
 from mindspore import load_checkpoint,load_param_into_net
 import mindspore.common.initializer as weight_init
-# 定义PSPnet的核心结构
-
+from mindspore import dtype as mstype
 class ResNet(nn.Cell):
     def __init__(self,pretrained_path,pretrained=False):
         super(ResNet, self).__init__()
-        resnet = resnet50(1000)
+        resnet = resnet50(10)
         if pretrained:
-            # 这个需要到现场拿ImageNet训练 预训练的是CIFAR-10 数据集太小
+            # 预训练的是CIFAR-10 数据集太小
+            # 写一个shell脚本下载预训练权重
             param_dict = load_checkpoint(pretrained_path)
             param_not_load = load_param_into_net(resnet, param_dict)
-
         self.layer1 = nn.SequentialCell(resnet.conv1, resnet.bn1, resnet.maxpool)
         self.layer2, self.layer3, self.layer4, self.layer5 = (
             resnet.layer1,
@@ -69,16 +70,14 @@ class _PSPModule(nn.Cell):
             ),
             norm_layer(out_channels),
             nn.ReLU(),
-
         )
         # 这里要预先指定输入的大小
         self.feature_shape = feature_shape
         self.resize_ops = ops.ResizeBilinear((self.feature_shape[0],self.feature_shape[1]),True)
-        self.dropout2d = ops.Dropout2D(0.1)
 
 
     def _make_stages(self,in_channels,out_channels,norm_layer,bin_sz):
-        prior = nn.AvgPool2d(kernel_size=bin_sz,stride=1)
+        prior = nn.AvgPool2d(kernel_size=bin_sz,stride=bin_sz)
         conv = nn.Conv2d(in_channels,out_channels,kernel_size=1,has_bias=False)
         bn = norm_layer(out_channels)
         relu = nn.ReLU()
@@ -86,6 +85,7 @@ class _PSPModule(nn.Cell):
         return nn.SequentialCell(prior,conv,bn,relu)
 
     def construct(self, features):
+        features = features.astype(mindspore.float32)
         pyramids = [features]
         pyramids.extend(
             [
@@ -97,29 +97,21 @@ class _PSPModule(nn.Cell):
         )
         output = self.cat(pyramids)
         output = self.bottleneck(output)
-        output = self.dropout2d(output)
         return output
 
 
 class PSPNet(nn.Cell):
     def __init__(
         self,
-        input_size,
+        pool_sizes = [1,2,3,6],
         feature_size=15,
         num_classes=21,
         backbone="resnet50",
-        pretrained=False,
+        pretrained=True,
         pretrained_path="",
         aux_branch=True,
     ):
         """
-        先保证能在VOC2012上运行
-        :param input_size:
-        :param num_classes:
-        :param downsample_factor:
-        :param backbone:
-        :param pretrained:
-        :param aux_branch:
         """
         super(PSPNet, self).__init__()
         norm_layer = nn.BatchNorm2d
@@ -129,17 +121,17 @@ class PSPNet(nn.Cell):
             out_channel = 2048
         else:
             raise ValueError(
-                "Unsupported backbone - `{}`, Use resnet50.".format(backbone)
+                "Unsupported backbone - `{}`, Use resnet50 .".format(backbone)
             )
         self.feature_shape = [feature_size,feature_size]
-        self.input_shape = input_size
+        self.pool_sizes = [feature_size-pool_size for pool_size in pool_sizes]
         # --------------------------------------------------------------#
         # 	PSP模块，分区域进行池化
         #   分别分割成1x1的区域，2x2的区域，3x3的区域，6x6的区域
         #   30,30,320 -> 30,30,80 -> 30,30,21
         # --------------------------------------------------------------#
         self.master_branch = nn.SequentialCell(
-            _PSPModule(out_channel, pool_sizes=[15, 14, 13, 10], norm_layer=norm_layer,feature_shape=self.feature_shape),
+            _PSPModule(out_channel, self.pool_sizes, norm_layer=norm_layer,feature_shape=self.feature_shape),
             nn.Conv2d(out_channel // 4, num_classes, kernel_size=1),
         )
 
@@ -158,7 +150,8 @@ class PSPNet(nn.Cell):
                 nn.ReLU(),
                 nn.Conv2d(out_channel // 8, num_classes, kernel_size=1),
             )
-        self.resize_ops = ops.ResizeBilinear(size=self.input_shape,align_corners=True)
+        self.resize = nn.ResizeBilinear()
+        self.shape = ops.Shape()
         self.init_weights(self.master_branch)
 
     def init_weights(self,*models):
@@ -175,16 +168,14 @@ class PSPNet(nn.Cell):
                     cell.bias.set_data(1e-4,cell.bias.shape,cell.bias.dtype)
 
     def construct(self, x):
-
+        x_shape = self.shape(x)
         x_aux, x = self.backbone(x)
         output = self.master_branch(x)
-        output = self.resize_ops(output)
+        output = self.resize(output,size=(x_shape[2:4]))
         if self.aux_branch:
             output_aux = self.auxiliary_branch(x_aux)
             output_aux = self.dropout(output_aux)
-            output_aux = self.resize_ops(
-                output_aux
-            )
+            output_aux = self.resize(output_aux,size=(x_shape[2:4]))
             return output_aux, output
         else:
             return output

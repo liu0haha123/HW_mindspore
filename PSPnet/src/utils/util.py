@@ -118,22 +118,3 @@ def set_context(config):
         context.set_context(mode=context.GRAPH_MODE,
                             device_target=config.platform, save_graphs=False)
 
-
-
-def config_ckpoint(config, lr, step_size):
-    cb = None
-    if config.platform in ("CPU", "GPU") or config.rank_id == 0:
-        cb = [Monitor(lr_init=lr.asnumpy())]
-
-        if config.save_checkpoint:
-            config_ck = CheckpointConfig(save_checkpoint_steps=config.save_checkpoint_epochs * step_size,
-                                         keep_checkpoint_max=config.keep_checkpoint_max)
-
-            rank = 0
-            if config.run_distribute:
-                rank = get_rank()
-
-            ckpt_save_dir = config.save_checkpoint_path + "ckpt_" + str(rank) + "/"
-            ckpt_cb = ModelCheckpoint(prefix="", directory=ckpt_save_dir, config=config_ck)
-            cb += [ckpt_cb]
-    return cb

@@ -31,9 +31,9 @@ def main():
         extract_signle(opt)
     elif mode == 'pair':
         GT_folder = './data/DIV2K/DIV2K_train_HR'
-        LR_folder = './data/DIV2K/DIV2K_train_LR_bicubic/X4'
+        LR_folder = './data/DIV2K/DIV2K_train_LR_X4'
         save_GT_folder = './data/DIV2K/DIV2K800_sub'
-        save_LR_folder = './data/DIV2K/DIV2K800_sub_bicLRx4'
+        save_LR_folder = './data/DIV2K/DIV2K800_sub_LRx4'
         scale_ratio = 4
         crop_sz = 480  # the size of each sub-image (GT)
         step = 240  # step of the sliding crop window (GT)
