@@ -9,7 +9,7 @@ class DenseBlock(nn.Cell):
         if self.norm =='batch':
             self.bn = nn.BatchNorm1d(output_size)
         else:
-            print("minspore不支持InstanceNorm")
+            # print("minspore不支持InstanceNorm")
             self.bn = nn.BatchNorm1d(output_size)
 
         self.activation = activation
@@ -37,15 +37,16 @@ class DenseBlock(nn.Cell):
 
 
 class ConvBlock(nn.Cell):
-    def __init__(self, input_size, output_size, kernel_size=3, stride=1, padding=1, bias=True, activation='prelu', norm=None):
+    # prelu不支持GPU
+    def __init__(self, input_size, output_size, kernel_size=3, stride=1, padding=1, bias=True, activation='relu', norm=None):
         super(ConvBlock, self).__init__()
-        self.conv = nn.Conv2d(input_size, output_size, kernel_size, stride, padding=padding, has_bias=bias)
+        self.conv = nn.Conv2d(input_size, output_size, kernel_size, stride, pad_mode='pad', padding=padding, has_bias=bias)
 
         self.norm = norm
         if self.norm =='batch':
             self.bn = nn.BatchNorm2d(output_size)
         else:
-            print("minspore不支持InstanceNorm")
+            # print("minspore不支持InstanceNorm")
             self.bn = nn.BatchNorm2d(output_size)
 
         self.activation = activation
@@ -71,16 +72,18 @@ class ConvBlock(nn.Cell):
         else:
             return out
 
+
 class DeconvBlock(nn.Cell):
-    def __init__(self, input_size, output_size, kernel_size=4, stride=2, padding=1, bias=True, activation='prelu', norm=None):
+    # prelu不支持GPU
+    def __init__(self, input_size, output_size, kernel_size=4, stride=2, padding=1, bias=True, activation='relu', norm=None):
         super(DeconvBlock, self).__init__()
-        self.deconv = nn.ConvTranspose2d(input_size, output_size, kernel_size, stride, padding=padding, has_bias=bias)
+        self.deconv = nn.Conv2dTranspose(input_size, output_size, kernel_size, stride, pad_mode='pad', padding=padding, has_bias=bias)
 
         self.norm = norm
         if self.norm == 'batch':
             self.bn = nn.BatchNorm2d(output_size)
         else:
-           print("minspore不支持InstanceNorm")
+           # print("minspore不支持InstanceNorm")
            self.bn = nn.BatchNorm2d(output_size)
 
         self.activation = activation
@@ -106,17 +109,19 @@ class DeconvBlock(nn.Cell):
         else:
             return out
 
+
 class ResnetBlock(nn.Cell):
-    def __init__(self, num_filter, kernel_size=3, stride=1, padding=1, bias=True, activation='prelu', norm='batch'):
+    # prelu不支持GPU
+    def __init__(self, num_filter, kernel_size=3, stride=1, padding=1, bias=True, activation='relu', norm='batch'):
         super(ResnetBlock, self).__init__()
-        self.conv1 = nn.Conv2d(num_filter, num_filter, kernel_size, stride, padding=padding, has_bias=bias)
-        self.conv2 = nn.Conv2d(num_filter, num_filter, kernel_size, stride, padding=padding, has_bias=bias)
+        self.conv1 = nn.Conv2d(num_filter, num_filter, kernel_size, stride, pad_mode='pad', padding=padding, has_bias=bias)
+        self.conv2 = nn.Conv2d(num_filter, num_filter, kernel_size, stride, pad_mode='pad', padding=padding, has_bias=bias)
 
         self.norm = norm
         if self.norm == 'batch':
             self.bn = nn.BatchNorm2d(num_filter)
         else:
-            print("minspore不支持InstanceNorm")
+            # print("minspore不支持InstanceNorm")
             self.bn = nn.BatchNorm2d(num_filter)
 
         self.activation = activation
@@ -130,7 +135,6 @@ class ResnetBlock(nn.Cell):
             self.act = nn.Tanh()
         elif self.activation == 'sigmoid':
             self.act = nn.Sigmoid()
-
 
     def construct(self, x):
         residual = x
@@ -150,8 +154,10 @@ class ResnetBlock(nn.Cell):
         out = add_ops(out, residual)
         return out
 
+
 class UpBlock(nn.Cell):
-    def __init__(self, num_filter, kernel_size=8, stride=4, padding=2, bias=True, activation='prelu', norm=None):
+    # prelu不支持GPU
+    def __init__(self, num_filter, kernel_size=8, stride=4, padding=2, bias=True, activation='relu', norm=None):
         super(UpBlock, self).__init__()
         self.up_conv1 = DeconvBlock(num_filter, num_filter, kernel_size, stride, padding, activation=activation, norm=None)
         self.up_conv2 = ConvBlock(num_filter, num_filter, kernel_size, stride, padding, activation=activation, norm=None)
@@ -165,7 +171,8 @@ class UpBlock(nn.Cell):
 
 
 class Upsampler(nn.Cell):
-    def __init__(self, scale, n_feat, bn=False, act='prelu', bias=True):
+    # prelu不支持GPU
+    def __init__(self, scale, n_feat, bn=False, act='relu', bias=True):
         super(Upsampler, self).__init__()
         modules = []
         for _ in range(int(math.log(scale, 2))):
@@ -196,7 +203,8 @@ class Upsampler(nn.Cell):
 
 
 class UpBlockPix(nn.Cell):
-    def __init__(self, num_filter, kernel_size=8, stride=4, padding=2, scale=4, bias=True, activation='prelu', norm=None):
+    # prelu不支持GPU
+    def __init__(self, num_filter, kernel_size=8, stride=4, padding=2, scale=4, bias=True, activation='relu', norm=None):
         super(UpBlockPix, self).__init__()
         self.up_conv1 = Upsampler(scale,num_filter)
         self.up_conv2 = ConvBlock(num_filter, num_filter, kernel_size, stride, padding, activation=activation, norm=None)
@@ -208,8 +216,10 @@ class UpBlockPix(nn.Cell):
         h1 = self.up_conv3(l0 - x)
         return h1 + h0
 
+
 class D_UpBlock(nn.Cell):
-    def __init__(self, num_filter, kernel_size=8, stride=4, padding=2, num_stages=1, bias=True, activation='prelu', norm=None):
+    # prelu不支持GPU
+    def __init__(self, num_filter, kernel_size=8, stride=4, padding=2, num_stages=1, bias=True, activation='relu', norm=None):
         super(D_UpBlock, self).__init__()
         self.conv = ConvBlock(num_filter*num_stages, num_filter, 1, 1, 0, activation=activation, norm=None)
         self.up_conv1 = DeconvBlock(num_filter, num_filter, kernel_size, stride, padding, activation=activation, norm=None)
@@ -223,8 +233,10 @@ class D_UpBlock(nn.Cell):
         h1 = self.up_conv3(l0 - x)
         return h1 + h0
 
+
 class D_UpBlockPix(nn.Cell):
-    def __init__(self, num_filter, kernel_size=8, stride=4, padding=2, num_stages=1, scale=4, bias=True, activation='prelu', norm=None):
+    # prelu不支持GPU
+    def __init__(self, num_filter, kernel_size=8, stride=4, padding=2, num_stages=1, scale=4, bias=True, activation='relu', norm=None):
         super(D_UpBlockPix, self).__init__()
         self.conv = ConvBlock(num_filter*num_stages, num_filter, 1, 1, 0, activation=activation, norm=None)
         self.up_conv1 = Upsampler(scale,num_filter)
@@ -240,7 +252,8 @@ class D_UpBlockPix(nn.Cell):
 
 
 class DownBlock(nn.Cell):
-    def __init__(self, num_filter, kernel_size=8, stride=4, padding=2, bias=True, activation='prelu', norm=None):
+    # prelu不支持GPU
+    def __init__(self, num_filter, kernel_size=8, stride=4, padding=2, bias=True, activation='relu', norm=None):
         super(DownBlock, self).__init__()
         self.down_conv1 = ConvBlock(num_filter, num_filter, kernel_size, stride, padding, activation=activation, norm=None)
         self.down_conv2 = DeconvBlock(num_filter, num_filter, kernel_size, stride, padding, activation=activation, norm=None)
@@ -252,8 +265,10 @@ class DownBlock(nn.Cell):
         l1 = self.down_conv3(h0 - x)
         return l1 + l0
 
+
 class DownBlockPix(nn.Cell):
-    def __init__(self, num_filter, kernel_size=8, stride=4, padding=2, scale=4,bias=True, activation='prelu', norm=None):
+    # prelu不支持GPU
+    def __init__(self, num_filter, kernel_size=8, stride=4, padding=2, scale=4,bias=True, activation='relu', norm=None):
         super(DownBlockPix, self).__init__()
         self.down_conv1 = ConvBlock(num_filter, num_filter, kernel_size, stride, padding, activation=activation, norm=None)
         self.down_conv2 = Upsampler(scale,num_filter)
@@ -267,7 +282,8 @@ class DownBlockPix(nn.Cell):
 
 
 class D_DownBlock(nn.Cell):
-    def __init__(self, num_filter, kernel_size=8, stride=4, padding=2, num_stages=1, bias=True, activation='prelu', norm=None):
+    # prelu不支持GPU
+    def __init__(self, num_filter, kernel_size=8, stride=4, padding=2, num_stages=1, bias=True, activation='relu', norm=None):
         super(D_DownBlock, self).__init__()
         self.conv = ConvBlock(num_filter*num_stages, num_filter, 1, 1, 0, activation=activation, norm=None)
         self.down_conv1 = ConvBlock(num_filter, num_filter, kernel_size, stride, padding, activation=activation, norm=None)
@@ -281,8 +297,10 @@ class D_DownBlock(nn.Cell):
         l1 = self.down_conv3(h0 - x)
         return l1 + l0
 
+
 class D_DownBlockPix(nn.Cell):
-    def __init__(self, num_filter, kernel_size=8, stride=4, padding=2, num_stages=1, scale=4, bias=True, activation='prelu', norm=None):
+    # prelu不支持GPU
+    def __init__(self, num_filter, kernel_size=8, stride=4, padding=2, num_stages=1, scale=4, bias=True, activation='relu', norm=None):
         super(D_DownBlockPix, self).__init__()
         self.conv = ConvBlock(num_filter*num_stages, num_filter, 1, 1, 0, activation=activation, norm=None)
         self.down_conv1 = ConvBlock(num_filter, num_filter, kernel_size, stride, padding, activation=activation, norm=None)
@@ -296,8 +314,10 @@ class D_DownBlockPix(nn.Cell):
         l1 = self.down_conv3(h0 - x)
         return l1 + l0
 
+
 class PSBlock(nn.Cell):
-    def __init__(self, input_size, output_size, scale_factor, kernel_size=3, stride=1, padding=1, bias=True, activation='prelu', norm='batch'):
+    # prelu不支持GPU
+    def __init__(self, input_size, output_size, scale_factor, kernel_size=3, stride=1, padding=1, bias=True, activation='relu', norm='batch'):
         super(PSBlock, self).__init__()
         self.conv = nn.Conv2d(input_size, output_size * scale_factor**2, kernel_size, stride, padding=padding, has_bias=bias)
         self.ps = mindspore.ops.DepthToSpace(2)
@@ -306,7 +326,7 @@ class PSBlock(nn.Cell):
         if self.norm == 'batch':
             self.bn = nn.BatchNorm2d(output_size)
         else:
-            print("minspore不支持InstanceNorm")
+            # print("minspore不支持InstanceNorm")
             self.bn = nn.BatchNorm2d(output_size)
 
         self.activation = activation
@@ -331,7 +351,9 @@ class PSBlock(nn.Cell):
             out = self.act(out)
         return out
 
+
 class Upsample2xBlock(nn.Cell):
+    # prelu不支持GPU
     def __init__(self, input_size, output_size, bias=True, upsample='deconv', activation='relu', norm='batch'):
         super(Upsample2xBlock, self).__init__()
         scale_factor = 2
