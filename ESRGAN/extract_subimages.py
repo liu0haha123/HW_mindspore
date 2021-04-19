@@ -25,9 +25,9 @@ def main():
     if mode == 'single':
         opt['input_folder'] = './data/DIV2K/DIV2K_train_HR'
         opt['save_folder'] = './data/DIV2K/DIV2K800_sub'
-        opt['crop_sz'] = 480  # the size of each sub-image
-        opt['step'] = 240  # step of the sliding crop window
-        opt['thres_sz'] = 48  # size threshold
+        opt['crop_sz'] = 512  # the size of each sub-image
+        opt['step'] = 256  # step of the sliding crop window
+        opt['thres_sz'] = 52  # size threshold
         extract_signle(opt)
     elif mode == 'pair':
         GT_folder = './data/DIV2K/DIV2K_train_HR'

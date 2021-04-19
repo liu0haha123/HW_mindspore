@@ -1,100 +1,56 @@
 import cv2
-import yaml
 import sys
 import time
 import numpy as np
 from absl import logging
-from src.utils.convert_tfrecord import load_tfrecord_dataset
+import numpy as np
+
+from src.utils.matlab_functions import bgr2ycbcr
 
 
-def load_yaml(load_path):
-    """load yaml file"""
-    with open(load_path, 'r') as f:
-        loaded = yaml.load(f, Loader=yaml.Loader)
+def reorder_image(img, input_order="HWC"):
+    """Reorder images to 'HWC' order.
 
-    return loaded
+    If the input_order is (h, w), return (h, w, 1);
+    If the input_order is (c, h, w), return (h, w, c);
+    If the input_order is (h, w, c), return as it is.
 
+    Args:
+        img (ndarray): Input image.
+        input_order (str): Whether the input order is 'HWC' or 'CHW'.
+            If the input image shape is (h, w), input_order will not have
+            effects. Default: 'HWC'.
 
+    Returns:
+        ndarray: reordered image.
+    """
 
-def load_dataset(cfg, key, shuffle=True, buffer_size=10240):
-    """load dataset"""
-    dataset_cfg = cfg[key]
-    logging.info("load {} from {}".format(key, dataset_cfg['path']))
-    dataset = load_tfrecord_dataset(
-        tfrecord_name=dataset_cfg['path'],
-        batch_size=cfg['batch_size'],
-        gt_size=cfg['gt_size'],
-        scale=cfg['scale'],
-        shuffle=shuffle,
-        using_bin=dataset_cfg['using_bin'],
-        using_flip=dataset_cfg['using_flip'],
-        using_rot=dataset_cfg['using_rot'],
-        buffer_size=buffer_size)
-    return dataset
-
-
-def create_lr_hr_pair(raw_img, scale=4.):
-    lr_h, lr_w = raw_img.shape[0] // scale, raw_img.shape[1] // scale
-    hr_h, hr_w = lr_h * scale, lr_w * scale
-    hr_img = raw_img[:hr_h, :hr_w, :]
-    lr_img = imresize_np(hr_img, 1 / scale)
-    return lr_img, hr_img
+    if input_order not in ["HWC", "CHW"]:
+        raise ValueError(
+            f"Wrong input_order {input_order}. Supported input_orders are "
+            "'HWC' and 'CHW'"
+        )
+    if len(img.shape) == 2:
+        img = img[..., None]
+    if input_order == "CHW":
+        img = img.transpose(1, 2, 0)
+    return img
 
 
-def tensor2img(tensor):
-    return (np.squeeze(tensor.numpy()).clip(0, 1) * 255).astype(np.uint8)
+def to_y_channel(img):
+    """Change to Y channel of YCbCr.
 
+    Args:
+        img (ndarray): Images with range [0, 255].
 
-def change_weight(model, vars1, vars2, alpha=1.0):
-    for i, var in enumerate(model.trainable_variables):
-        var.assign((1 - alpha) * vars1[i] + alpha * vars2[i])
-
-
-class ProgressBar(object):
-    """A progress bar which can print the progress modified from
-       https://github.com/hellock/cvbase/blob/master/cvbase/progress.py"""
-    def __init__(self, task_num=0, completed=0, bar_width=25):
-        self.task_num = task_num
-        max_bar_width = self._get_max_bar_width()
-        self.bar_width = (bar_width
-                          if bar_width <= max_bar_width else max_bar_width)
-        self.completed = completed
-        self.first_step = completed
-        self.warm_up = False
-
-    def _get_max_bar_width(self):
-
-        from shutil import get_terminal_size
-        terminal_width, _ = get_terminal_size()
-        max_bar_width = min(int(terminal_width * 0.6), terminal_width - 50)
-        if max_bar_width < 10:
-            logging.info('terminal width is too small ({}), please consider '
-                         'widen the terminal for better progressbar '
-                         'visualization'.format(terminal_width))
-            max_bar_width = 10
-        return max_bar_width
-
-    def reset(self):
-        """reset"""
-        self.completed = 0
-
-    def update(self, inf_str=''):
-        """update"""
-        self.completed += 1
-        if not self.warm_up:
-            self.start_time = time.time() - 1e-2
-            self.warm_up = True
-        elapsed = time.time() - self.start_time
-        fps = (self.completed - self.first_step) / elapsed
-        percentage = self.completed / float(self.task_num)
-        mark_width = int(self.bar_width * percentage)
-        bar_chars = '>' * mark_width + ' ' * (self.bar_width - mark_width)
-        stdout_str = \
-            '\rTraining [{}] {}/{}, {}  {:.1f} step/sec'
-        sys.stdout.write(stdout_str.format(
-            bar_chars, self.completed, self.task_num, inf_str, fps))
-
-        sys.stdout.flush()
+    Returns:
+        (ndarray): Images with range [0, 255] (float type) without round.
+    """
+    img = img.astype(np.float32) / 255.0
+    if img.ndim == 3 and img.shape[2] == 3:
+        img = bgr2ycbcr(img, y_only=True)
+        img = img[..., None]
+    return img * 255.0
 
 
 ###############################################################################
@@ -112,7 +68,7 @@ def imresize_np(img, scale, antialiasing=True):
     _, out_H, out_W = in_C, np.ceil(in_H * scale), np.ceil(in_W * scale)
     out_H, out_W = out_H.astype(np.int64), out_W.astype(np.int64)
     kernel_width = 4
-    kernel = 'cubic'
+    kernel = "cubic"
 
     # Return the desired dimension order for performing the resize.  The
     # strategy is to perform the resize first along the dimension with the
@@ -121,13 +77,15 @@ def imresize_np(img, scale, antialiasing=True):
 
     # get weights and indices
     weights_H, indices_H, sym_len_Hs, sym_len_He = _calculate_weights_indices(
-        in_H, out_H, scale, kernel, kernel_width, antialiasing)
+        in_H, out_H, scale, kernel, kernel_width, antialiasing
+    )
     weights_W, indices_W, sym_len_Ws, sym_len_We = _calculate_weights_indices(
-        in_W, out_W, scale, kernel, kernel_width, antialiasing)
+        in_W, out_W, scale, kernel, kernel_width, antialiasing
+    )
     # process H dimension
     # symmetric copying
     img_aug = np.zeros(((in_H + sym_len_Hs + sym_len_He), in_W, in_C))
-    img_aug[sym_len_Hs:sym_len_Hs + in_H] = img
+    img_aug[sym_len_Hs : sym_len_Hs + in_H] = img
 
     sym_patch = img[:sym_len_Hs, :, :]
     sym_patch_inv = sym_patch[::-1]
@@ -135,23 +93,26 @@ def imresize_np(img, scale, antialiasing=True):
 
     sym_patch = img[-sym_len_He:, :, :]
     sym_patch_inv = sym_patch[::-1]
-    img_aug[sym_len_Hs + in_H:sym_len_Hs + in_H + sym_len_He] = sym_patch_inv
+    img_aug[sym_len_Hs + in_H : sym_len_Hs + in_H + sym_len_He] = sym_patch_inv
 
     out_1 = np.zeros((out_H, in_W, in_C))
     kernel_width = weights_H.shape[1]
     for i in range(out_H):
         idx = int(indices_H[i][0])
         out_1[i, :, 0] = weights_H[i].dot(
-            img_aug[idx:idx + kernel_width, :, 0].transpose(0, 1))
+            img_aug[idx : idx + kernel_width, :, 0].transpose(0, 1)
+        )
         out_1[i, :, 1] = weights_H[i].dot(
-            img_aug[idx:idx + kernel_width, :, 1].transpose(0, 1))
+            img_aug[idx : idx + kernel_width, :, 1].transpose(0, 1)
+        )
         out_1[i, :, 2] = weights_H[i].dot(
-            img_aug[idx:idx + kernel_width, :, 2].transpose(0, 1))
+            img_aug[idx : idx + kernel_width, :, 2].transpose(0, 1)
+        )
 
     # process W dimension
     # symmetric copying
     out_1_aug = np.zeros((out_H, in_W + sym_len_Ws + sym_len_We, in_C))
-    out_1_aug[:, sym_len_Ws:sym_len_Ws + in_W] = out_1
+    out_1_aug[:, sym_len_Ws : sym_len_Ws + in_W] = out_1
 
     sym_patch = out_1[:, :sym_len_Ws, :]
     sym_patch_inv = sym_patch[:, ::-1]
@@ -159,19 +120,15 @@ def imresize_np(img, scale, antialiasing=True):
 
     sym_patch = out_1[:, -sym_len_We:, :]
     sym_patch_inv = sym_patch[:, ::-1]
-    out_1_aug[:, sym_len_Ws + in_W:sym_len_Ws + in_W + sym_len_We] = \
-        sym_patch_inv
+    out_1_aug[:, sym_len_Ws + in_W : sym_len_Ws + in_W + sym_len_We] = sym_patch_inv
 
     out_2 = np.zeros((out_H, out_W, in_C))
     kernel_width = weights_W.shape[1]
     for i in range(out_W):
         idx = int(indices_W[i][0])
-        out_2[:, i, 0] = out_1_aug[:, idx:idx + kernel_width, 0].dot(
-            weights_W[i])
-        out_2[:, i, 1] = out_1_aug[:, idx:idx + kernel_width, 1].dot(
-            weights_W[i])
-        out_2[:, i, 2] = out_1_aug[:, idx:idx + kernel_width, 2].dot(
-            weights_W[i])
+        out_2[:, i, 0] = out_1_aug[:, idx : idx + kernel_width, 0].dot(weights_W[i])
+        out_2[:, i, 1] = out_1_aug[:, idx : idx + kernel_width, 1].dot(weights_W[i])
+        out_2[:, i, 2] = out_1_aug[:, idx : idx + kernel_width, 2].dot(weights_W[i])
 
     return out_2.clip(0, 255)
 
@@ -180,13 +137,14 @@ def _cubic(x):
     absx = np.abs(x)
     absx2 = absx ** 2
     absx3 = absx ** 3
-    return (1.5 * absx3 - 2.5 * absx2 + 1) * ((absx <= 1).astype(np.float64)) \
-        + (-0.5 * absx3 + 2.5 * absx2 - 4 * absx + 2) * (
-            ((absx > 1) * (absx <= 2)).astype(np.float64))
+    return (1.5 * absx3 - 2.5 * absx2 + 1) * ((absx <= 1).astype(np.float64)) + (
+        -0.5 * absx3 + 2.5 * absx2 - 4 * absx + 2
+    ) * (((absx > 1) * (absx <= 2)).astype(np.float64))
 
 
-def _calculate_weights_indices(in_length, out_length, scale, kernel,
-                               kernel_width, antialiasing):
+def _calculate_weights_indices(
+    in_length, out_length, scale, kernel, kernel_width, antialiasing
+):
     if (scale < 1) and (antialiasing):
         # Use a modified kernel to simultaneously interpolate and antialias
         # larger kernel width
@@ -211,13 +169,13 @@ def _calculate_weights_indices(in_length, out_length, scale, kernel,
 
     # The indices of the input pixels involved in computing the k-th output
     # pixel are in row k of the indices matrix.
-    indices = left.reshape(int(out_length), 1).repeat(P, axis=1) + \
-        np.linspace(0, P - 1, P).reshape(1, int(P)).repeat(out_length, axis=0)
+    indices = left.reshape(int(out_length), 1).repeat(P, axis=1) + np.linspace(
+        0, P - 1, P
+    ).reshape(1, int(P)).repeat(out_length, axis=0)
 
     # The weights used to compute the k-th output pixel are in row k of the
     # weights matrix.
-    distance_to_center = \
-        u.reshape(int(out_length), 1).repeat(P, axis=1) - indices
+    distance_to_center = u.reshape(int(out_length), 1).repeat(P, axis=1) - indices
     # apply cubic kernel
     if (scale < 1) and (antialiasing):
         weights = scale * _cubic(distance_to_center * scale)
@@ -231,11 +189,11 @@ def _calculate_weights_indices(in_length, out_length, scale, kernel,
     # first and last column.
     weights_zero_tmp = np.sum((weights == 0), 0)
     if not np.isclose(weights_zero_tmp[0], 0, rtol=1e-6):
-        indices = indices[:, 1:1 + int(P) - 2]
-        weights = weights[:, 1:1 + int(P) - 2]
+        indices = indices[:, 1 : 1 + int(P) - 2]
+        weights = weights[:, 1 : 1 + int(P) - 2]
     if not np.isclose(weights_zero_tmp[-1], 0, rtol=1e-6):
-        indices = indices[:, 0:0 + int(P) - 2]
-        weights = weights[:, 0:0 + int(P) - 2]
+        indices = indices[:, 0 : 0 + int(P) - 2]
+        weights = weights[:, 0 : 0 + int(P) - 2]
     weights = weights.copy()
     indices = indices.copy()
     sym_len_s = -indices.min() + 1
@@ -248,15 +206,15 @@ def calculate_psnr(img1, img2):
     # img1 and img2 have range [0, 255]
     img1 = img1.astype(np.float64)
     img2 = img2.astype(np.float64)
-    mse = np.mean((img1 - img2)**2)
+    mse = np.mean((img1 - img2) ** 2)
     if mse == 0:
-        return float('inf')
+        return float("inf")
     return 20 * np.log10(255.0 / np.sqrt(mse))
 
 
 def _ssim(img1, img2):
-    C1 = (0.01 * 255)**2
-    C2 = (0.03 * 255)**2
+    C1 = (0.01 * 255) ** 2
+    C2 = (0.03 * 255) ** 2
 
     img1 = img1.astype(np.float64)
     img2 = img2.astype(np.float64)
@@ -265,25 +223,26 @@ def _ssim(img1, img2):
 
     mu1 = cv2.filter2D(img1, -1, window)[5:-5, 5:-5]  # valid
     mu2 = cv2.filter2D(img2, -1, window)[5:-5, 5:-5]
-    mu1_sq = mu1**2
-    mu2_sq = mu2**2
+    mu1_sq = mu1 ** 2
+    mu2_sq = mu2 ** 2
     mu1_mu2 = mu1 * mu2
-    sigma1_sq = cv2.filter2D(img1**2, -1, window)[5:-5, 5:-5] - mu1_sq
-    sigma2_sq = cv2.filter2D(img2**2, -1, window)[5:-5, 5:-5] - mu2_sq
+    sigma1_sq = cv2.filter2D(img1 ** 2, -1, window)[5:-5, 5:-5] - mu1_sq
+    sigma2_sq = cv2.filter2D(img2 ** 2, -1, window)[5:-5, 5:-5] - mu2_sq
     sigma12 = cv2.filter2D(img1 * img2, -1, window)[5:-5, 5:-5] - mu1_mu2
 
-    ssim_map = ((2 * mu1_mu2 + C1) * (2 * sigma12 + C2)) \
-        / ((mu1_sq + mu2_sq + C1) * (sigma1_sq + sigma2_sq + C2))
+    ssim_map = ((2 * mu1_mu2 + C1) * (2 * sigma12 + C2)) / (
+        (mu1_sq + mu2_sq + C1) * (sigma1_sq + sigma2_sq + C2)
+    )
     return ssim_map.mean()
 
 
 def calculate_ssim(img1, img2):
-    '''calculate SSIM
+    """calculate SSIM
     the same outputs as MATLAB's
     img1, img2: [0, 255]
-    '''
+    """
     if not img1.shape == img2.shape:
-        raise ValueError('Input images must have the same dimensions.')
+        raise ValueError("Input images must have the same dimensions.")
     if img1.ndim == 2:
         return _ssim(img1, img2)
     elif img1.ndim == 3:
@@ -295,7 +254,7 @@ def calculate_ssim(img1, img2):
         elif img1.shape[2] == 1:
             return _ssim(np.squeeze(img1), np.squeeze(img2))
     else:
-        raise ValueError('Wrong input image dimensions.')
+        raise ValueError("Wrong input image dimensions.")
 
 
 def rgb2ycbcr(img, only_y=True):
@@ -308,7 +267,7 @@ def rgb2ycbcr(img, only_y=True):
     in_img_type = img.dtype
     img.astype(np.float32)
     if in_img_type != np.uint8:
-        img *= 255.
+        img *= 255.0
     img = img[:, :, ::-1]
 
     # convert
@@ -316,11 +275,15 @@ def rgb2ycbcr(img, only_y=True):
         rlt = np.dot(img, [24.966, 128.553, 65.481]) / 255.0 + 16.0
     else:
         rlt = np.matmul(
-            img, [[24.966, 112.0, -18.214],
-                  [128.553, -74.203, -93.786],
-                  [65.481, -37.797, 112.0]]) / 255.0 + [16, 128, 128]
+            img,
+            [
+                [24.966, 112.0, -18.214],
+                [128.553, -74.203, -93.786],
+                [65.481, -37.797, 112.0],
+            ],
+        ) / 255.0 + [16, 128, 128]
     if in_img_type == np.uint8:
         rlt = rlt.round()
     else:
-        rlt /= 255.
+        rlt /= 255.0
     return rlt.astype(in_img_type)

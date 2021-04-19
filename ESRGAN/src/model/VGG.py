@@ -17,22 +17,27 @@ import mindspore.nn as nn
 from mindspore.common.initializer import initializer
 import mindspore.common.dtype as mstype
 
+
 def _make_layer(base, batch_norm):
     """Make stage network of VGG."""
     layers = []
     in_channels = 3
     for v in base:
-        if v == 'M':
+        if v == "M":
             layers += [nn.MaxPool2d(kernel_size=2, stride=2)]
         else:
             weight_shape = (v, in_channels, 3, 3)
-            weight = initializer('XavierUniform', shape=weight_shape, dtype=mstype.float32).to_tensor()
-            conv2d = nn.Conv2d(in_channels=in_channels,
-                               out_channels=v,
-                               kernel_size=3,
-                               padding=0,
-                               pad_mode='same',
-                               weight_init=weight)
+            weight = initializer(
+                "XavierUniform", shape=weight_shape, dtype=mstype.float32
+            ).to_tensor()
+            conv2d = nn.Conv2d(
+                in_channels=in_channels,
+                out_channels=v,
+                kernel_size=3,
+                padding=0,
+                pad_mode="same",
+                weight_init=weight,
+            )
             if batch_norm:
                 layers += [conv2d, nn.BatchNorm2d(v), nn.ReLU()]
             else:
@@ -62,12 +67,15 @@ class Vgg(nn.Cell):
         _ = batch_size
         self.layers = _make_layer(base, batch_norm=batch_norm)
         self.flatten = nn.Flatten()
-        self.classifier = nn.SequentialCell([
-            nn.Dense(512 * 7 * 7, 4096),
-            nn.ReLU(),
-            nn.Dense(4096, 4096),
-            nn.ReLU(),
-            nn.Dense(4096, num_classes)])
+        self.classifier = nn.SequentialCell(
+            [
+                nn.Dense(512 * 7 * 7, 4096),
+                nn.ReLU(),
+                nn.Dense(4096, 4096),
+                nn.ReLU(),
+                nn.Dense(4096, num_classes),
+            ]
+        )
 
     def construct(self, x):
         x = self.layers(x)
@@ -77,19 +85,61 @@ class Vgg(nn.Cell):
 
 
 cfg = {
-    '11': [64, 'M', 128, 'M', 256, 256, 'M', 512, 512, 'M', 512, 512, 'M'],
-    '13': [64, 64, 'M', 128, 128, 'M', 256, 256, 'M', 512, 512, 'M', 512, 512, 'M'],
-    '16': [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 'M', 512, 512, 512, 'M', 512, 512, 512, 'M'],
-    '19': [64, 64, 'M', 128, 128, 'M', 256, 256, 256, 256, 'M', 512, 512, 512, 512, 'M', 512, 512, 512, 512, 'M'],
+    "11": [64, "M", 128, "M", 256, 256, "M", 512, 512, "M", 512, 512, "M"],
+    "13": [64, 64, "M", 128, 128, "M", 256, 256, "M", 512, 512, "M", 512, 512, "M"],
+    "16": [
+        64,
+        64,
+        "M",
+        128,
+        128,
+        "M",
+        256,
+        256,
+        256,
+        "M",
+        512,
+        512,
+        512,
+        "M",
+        512,
+        512,
+        512,
+        "M",
+    ],
+    "19": [
+        64,
+        64,
+        "M",
+        128,
+        128,
+        "M",
+        256,
+        256,
+        256,
+        256,
+        "M",
+        512,
+        512,
+        512,
+        512,
+        "M",
+        512,
+        512,
+        512,
+        512,
+        "M",
+    ],
 }
 
 
 def vgg16(num_classes=1000):
 
-    net = Vgg(cfg['16'], num_classes=num_classes, batch_norm=False)
+    net = Vgg(cfg["16"], num_classes=num_classes, batch_norm=False)
     return net
+
 
 def vgg19(num_classes=1000):
 
-    net = Vgg(cfg['19'], num_classes=num_classes, batch_norm=False)
+    net = Vgg(cfg["19"], num_classes=num_classes, batch_norm=False)
     return net

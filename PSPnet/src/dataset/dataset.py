@@ -2,57 +2,29 @@ import mindspore
 import mindspore.dataset as ds
 import os
 import glob
-from PIL import Image, ImageOps
-import matplotlib.pyplot as plt
-import glob
+from PIL import Image, ImageOps, ImageFilter
 import numpy as np
 import cv2
 import mindspore.common.dtype as mstype
-import mindspore.dataset as ds
+from mindspore.dataset.vision import Inter
 import mindspore.dataset.vision.c_transforms as C
 import mindspore.dataset.transforms.c_transforms as C2
 
+
+def get_data_list(data_list_file):
+    with open(data_list_file, mode='r') as f:
+        lines = []
+        for line in f.readlines():
+            lines.append(line.rstrip("\n"))
+        return lines
+
+
 # 定义数据集的读取方式，不包含增广
-num_classes_VOC = 21
-num_classes_ADE = 150
 EXTENSIONS = [".jpg", ".jpeg", ".png"]
-VOC_image_size = [473, 473, 3]
-
-
-def load_image(file):
-    return Image.open(file)
-
-
-def letterbox_image(image, label, size):
-    # 随机裁剪已有大小的图像不涉及其他增广
-    label = Image.fromarray(np.array(label))
-    '''resize image with unchanged aspect ratio using padding'''
-    iw, ih = image.size
-    w, h = size
-    scale = min(w / iw, h / ih)
-    nw = int(iw * scale)
-    nh = int(ih * scale)
-
-    image = image.resize((nw, nh), Image.BICUBIC)
-    new_image = Image.new('RGB', size, (128, 128, 128))
-    new_image.paste(image, ((w - nw) // 2, (h - nh) // 2))
-
-    label = label.resize((nw, nh), Image.NEAREST)
-    new_label = Image.new('L', size, (0))
-    new_label.paste(label, ((w - nw) // 2, (h - nh) // 2))
-    return new_image, new_label
-
-
-def rand(a, b):
-    return np.random.rand() * (b - a) + a
 
 
 def is_image(filename):
     return any(filename.endswith(ext) for ext in EXTENSIONS)
-
-
-def image_path(root, basename, extension):
-    return os.path.join(root, '{basename}{extension}')
 
 
 def image_basename(filename):
@@ -67,22 +39,16 @@ def read_test_list(path):
     return all_list
 
 
-def load_img(filepath):
-    img = Image.open(filepath).convert('RGB')
-    # y, _, _ = img.split()
-    return img
-
-
 def read_ade20k_image_label_list(data_dir, mode):
     if mode == 'train':
         data_sub = 'training'
     else:
         data_sub = 'validation'
 
-    images_filename_proto = data_dir + '/images/' + data_sub + '/*.jpg'
+    images_filename_proto = data_dir + '/ADE/images/' + data_sub + '/*.jpg'
     images = sorted(glob.glob(images_filename_proto))
 
-    labels_filename_proto = data_dir + '/annotations/' + data_sub + '/*.png'
+    labels_filename_proto = data_dir + '/ADE/annotations/' + data_sub + '/*.png'
     labels = sorted(glob.glob(labels_filename_proto))
 
     # for just checking they are corresponded.
@@ -103,209 +69,153 @@ class ADE20k():
         self.aug = aug
         self.num_classes = num_classes
         self.image_list, self.label_list = read_ade20k_image_label_list(self.data_dir, mode)
-        assert len(self.image_list) > 0, 'No images are found.'
-        print('Database has %d images.' % len(self.image_list))
+        self.min_scale = 0.5
+        self.max_scale = 2.0
+        self.image_mean = np.array([103.53, 116.28, 123.675])
+        self.image_std = np.array([57.375, 57.120, 58.395])
+        self.ignore_label = 255
+        self.crop_size = 473
+
+    def preprocess_(self, image, label):
+        """SegDataset.preprocess_"""
+        # bgr image
+
+        sc = np.random.uniform(self.min_scale, self.max_scale)
+        new_h, new_w = int(sc * image.shape[0]), int(sc * image.shape[1])
+        image_out = cv2.resize(image, (new_w, new_h), interpolation=cv2.INTER_CUBIC)
+        label_out = cv2.resize(label, (new_w, new_h), interpolation=cv2.INTER_NEAREST)
+
+        image_out = (image_out - self.image_mean) / self.image_std
+        h_, w_ = max(new_h, self.crop_size), max(new_w, self.crop_size)
+        pad_h, pad_w = h_ - new_h, w_ - new_w
+        if pad_h > 0 or pad_w > 0:
+            image_out = cv2.copyMakeBorder(image_out, 0, pad_h, 0, pad_w, cv2.BORDER_CONSTANT, value=0)
+            label_out = cv2.copyMakeBorder(label_out, 0, pad_h, 0, pad_w, cv2.BORDER_CONSTANT, value=self.ignore_label)
+        offset_h = np.random.randint(0, h_ - self.crop_size + 1)
+        offset_w = np.random.randint(0, w_ - self.crop_size + 1)
+        image_out = image_out[offset_h: offset_h + self.crop_size, offset_w: offset_w + self.crop_size, :]
+        label_out = label_out[offset_h: offset_h + self.crop_size, offset_w: offset_w + self.crop_size]
+        image_out = cv2.GaussianBlur(image_out, (5, 5), 0)
+        if np.random.uniform(0.0, 1.0) > 0.5:
+            image_out = image_out[:, ::-1, :]
+            label_out = label_out[:, ::-1]
+
+        image_out = image_out.transpose((2, 0, 1))
+        image_out = image_out.copy()
+        label_out = label_out.copy()
+        return image_out, label_out
+
 
     def __len__(self):
         return len(self.image_list)
-
-    def rand(self, a=0, b=1):
-        return np.random.rand() * (b - a) + a
-
-    def get_random_data(self, image, label, input_shape, jitter=.3, hue=.1, sat=1.5, val=1.5):
-        label = Image.fromarray(np.array(label))
-
-        h, w = input_shape
-        # resize image
-        rand_jit1 = rand(1 - jitter, 1 + jitter)
-        rand_jit2 = rand(1 - jitter, 1 + jitter)
-        new_ar = w / h * rand_jit1 / rand_jit2
-
-        scale = rand(0.25, 2)
-        if new_ar < 1:
-            nh = int(scale * h)
-            nw = int(nh * new_ar)
-        else:
-            nw = int(scale * w)
-            nh = int(nw / new_ar)
-
-        image = image.resize((nw, nh), Image.BICUBIC)
-        label = label.resize((nw, nh), Image.NEAREST)
-        label = label.convert("L")
-
-        # flip image or not
-        flip = rand(0, 1) < .5
-        if flip:
-            image = image.transpose(Image.FLIP_LEFT_RIGHT)
-            label = label.transpose(Image.FLIP_LEFT_RIGHT)
-
-        # place image
-        dx = int(rand(0, w - nw))
-        dy = int(rand(0, h - nh))
-        new_image = Image.new('RGB', (w, h), (128, 128, 128))
-        new_label = Image.new('L', (w, h), (0))
-        new_image.paste(image, (dx, dy))
-        new_label.paste(label, (dx, dy))
-        image = new_image
-        label = new_label
-
-        # distort image
-        hue = rand(-hue, hue)
-        sat = rand(1, sat) if rand(0, 1) < .5 else 1 / rand(1, sat)
-        val = rand(1, val) if rand(0, 1) < .5 else 1 / rand(1, val)
-        x = cv2.cvtColor(np.array(image, np.float32) / 255, cv2.COLOR_RGB2HSV)
-        x[..., 0] += hue * 360
-        x[..., 0][x[..., 0] > 1] -= 1
-        x[..., 0][x[..., 0] < 0] += 1
-        x[..., 1] *= sat
-        x[..., 2] *= val
-        x[x[:, :, 0] > 360, 0] = 360
-        x[:, :, 1:][x[:, :, 1:] > 1] = 1
-        x[x < 0] = 0
-        image_data = cv2.cvtColor(x, cv2.COLOR_HSV2RGB) * 255
-        return image_data, label
 
     def __getitem__(self, index):
         filename_image = self.image_list[index]
         filename_label = self.label_list[index]
 
-        image = load_img(filename_image).convert('RGB')
-        label = load_img(filename_label).convert('P')
+        image = cv2.imread(filename_image, cv2.IMREAD_COLOR)  # BGR 3 channel ndarray wiht shape H * W * 3
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)  # convert cv2 read image from BGR order to RGB order
+        label = cv2.imread(filename_label, cv2.IMREAD_GRAYSCALE)
+        if self.aug and self.mode=="train":
+            image, label = self.preprocess_(image, label)
 
-        if self.aug:
-            jpg, png = self.get_random_data(image, label, (int(VOC_image_size[0]), int(VOC_image_size[1])))
-        else:
-            jpg, png = letterbox_image(image, label, (int(VOC_image_size[1]), int(VOC_image_size[0])))
-
-        # 从文件中读取图像
-        png = np.array(png)
-        png[png >= self.num_classes] = self.num_classes
-
-        # 转化成one_hot的形式
-        # seg_labels = np.eye(self.num_classes + 1)[png.reshape([-1])]
-        # seg_labels = seg_labels.reshape((int(VOC_image_size[0]), int(VOC_image_size[1]), self.num_classes + 1))
-
-        jpg = np.transpose(np.array(jpg), [2, 0, 1]) / 255
-        return jpg, png
+        return image, label
 
 
 class VOC12Dataset():
 
-    def __init__(self, num_classes, lst_path, aug=True):
+    def __init__(self, root_path, num_classes, mode, aug):
         self.aug = aug
         self.num_classes = num_classes
-        self.img_path = []
-        self.label_path = []
-        with open(lst_path) as f:
-            lines = f.readlines()
-            print('number of samples:', len(lines))
-            for l in lines:
-                img_path, label_path = l.strip().split(' ')
-                self.img_path.append(img_path)
-                self.label_path.append(label_path)
+        self.mode = mode
+        self.min_scale = 0.5
+        self.max_scale = 2.0
+        self.image_mean = [103.53, 116.28, 123.675]
+        self.image_std = [57.375, 57.120, 58.395]
+        self.ignore_label = 255
+        self.crop_size = 473
 
-    def rand(self, a=0, b=1):
-        return np.random.rand() * (b - a) + a
-
-    def get_random_data(self, image, label, input_shape, jitter=.3, hue=.1, sat=1.5, val=1.5):
-        h, w = input_shape
-        # resize image
-        rand_jit1 = rand(1 - jitter, 1 + jitter)
-        rand_jit2 = rand(1 - jitter, 1 + jitter)
-        new_ar = w / h * rand_jit1 / rand_jit2
-
-        scale = rand(0.25, 2)
-        if new_ar < 1:
-            nh = int(scale * h)
-            nw = int(nh * new_ar)
+        if self.mode == "train" or self.mode == "eval":
+            # 以标注图像为准
+            self.images_root = os.path.join(root_path, "VOC2012", 'JPEGImages')
+            self.labels_root = os.path.join(root_path, "VOC2012", 'SegmentationClass')
+            self.filenames = [image_basename(f) for f in os.listdir(self.labels_root) if is_image(f)]
         else:
-            nw = int(scale * w)
-            nh = int(nw / new_ar)
-
-        image = image.resize((nw, nh), Image.BICUBIC)
-        label = label.resize((nw, nh), Image.NEAREST)
-        label = label.convert("L")
-
-        # flip image or not
-        flip = rand(0, 1) < .5
-        if flip:
-            image = image.transpose(Image.FLIP_LEFT_RIGHT)
-            label = label.transpose(Image.FLIP_LEFT_RIGHT)
-
-        # place image
-        dx = int(rand(0, w - nw))
-        dy = int(rand(0, h - nh))
-        new_image = Image.new('RGB', (w, h), (128, 128, 128))
-        new_label = Image.new('L', (w, h), (0))
-        new_image.paste(image, (dx, dy))
-        new_label.paste(label, (dx, dy))
-        image = new_image
-        label = new_label
-
-        # distort image
-        hue = rand(-hue, hue)
-        sat = rand(1, sat) if rand(0, 1) < .5 else 1 / rand(1, sat)
-        val = rand(1, val) if rand(0, 1) < .5 else 1 / rand(1, val)
-        x = cv2.cvtColor(np.array(image, np.float32) / 255, cv2.COLOR_RGB2HSV)
-        x[..., 0] += hue * 360
-        x[..., 0][x[..., 0] > 1] -= 1
-        x[..., 0][x[..., 0] < 0] += 1
-        x[..., 1] *= sat
-        x[..., 2] *= val
-        x[x[:, :, 0] > 360, 0] = 360
-        x[:, :, 1:][x[:, :, 1:] > 1] = 1
-        x[x < 0] = 0
-        image_data = cv2.cvtColor(x, cv2.COLOR_HSV2RGB) * 255
-        return image_data, label
+            print("请指定数据集划分")
+        train_list = get_data_list(os.path.join(root_path, "VOC2012", 'ImageSets/Segmentation/train.txt'))
+        val_list = get_data_list(os.path.join(root_path, "VOC2012", 'ImageSets/Segmentation/val.txt'))
+        if (self.mode == "train"):
+            self.filenames = train_list
+        elif (self.mode == "eval"):
+            self.filenames = val_list
 
     def __getitem__(self, index):
 
-        img = self.img_path[index]
-        label = self.label_path[index]
-        with open(img, 'rb') as f:
-            image = load_image(f).convert('RGB')
-        with open(label, 'rb') as f:
-            label = load_image(f).convert('P')
+        filename = self.filenames[index]
 
-        if self.aug:
-            jpg, png = self.get_random_data(image, label, (int(VOC_image_size[0]), int(VOC_image_size[1])))
-        else:
-            jpg, png = letterbox_image(image, label, (int(VOC_image_size[1]), int(VOC_image_size[0])))
+        filename_image = self.images_root + "/" + str(filename) + '.jpg'
+        image = cv2.imread(filename_image, cv2.IMREAD_COLOR)  # BGR 3 channel ndarray wiht shape H * W * 3
+        image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)  # convert cv2 read image from BGR order to RGB order
 
-        # 从文件中读取图像
-        png = np.array(png)
-        png[png >= self.num_classes] = self.num_classes
+        filename_label = self.labels_root + "/" + str(filename) + '.png'
+        label = cv2.imread(filename_label, cv2.IMREAD_GRAYSCALE)
+        if self.aug and self.mode=="train":
+            image, label = self.preprocess_(image, label)
 
-        # 转化成one_hot的形式
-        # seg_labels = np.eye(self.num_classes + 1)[png.reshape([-1])]
-        # seg_labels = seg_labels.reshape((int(VOC_image_size[0]), int(VOC_image_size[1]), self.num_classes + 1))
-        # 默认的读入格式是NHWC注意转换成NCWH
-        jpg = np.transpose(np.array(jpg), [2, 0, 1]) / 255
+        return image, label
 
-        return jpg, png
+    def preprocess_(self, image, label):
+        """SegDataset.preprocess_"""
+        # bgr image
+
+        sc = np.random.uniform(self.min_scale, self.max_scale)
+        new_h, new_w = int(sc * image.shape[0]), int(sc * image.shape[1])
+        image_out = cv2.resize(image, (new_w, new_h), interpolation=cv2.INTER_CUBIC)
+        label_out = cv2.resize(label, (new_w, new_h), interpolation=cv2.INTER_NEAREST)
+
+        image_out = (image_out - self.image_mean) / self.image_std
+        h_, w_ = max(new_h, self.crop_size), max(new_w, self.crop_size)
+        pad_h, pad_w = h_ - new_h, w_ - new_w
+        if pad_h > 0 or pad_w > 0:
+            image_out = cv2.copyMakeBorder(image_out, 0, pad_h, 0, pad_w, cv2.BORDER_CONSTANT, value=0)
+            label_out = cv2.copyMakeBorder(label_out, 0, pad_h, 0, pad_w, cv2.BORDER_CONSTANT, value=self.ignore_label)
+        offset_h = np.random.randint(0, h_ - self.crop_size + 1)
+        offset_w = np.random.randint(0, w_ - self.crop_size + 1)
+        image_out = image_out[offset_h: offset_h + self.crop_size, offset_w: offset_w + self.crop_size, :]
+        label_out = label_out[offset_h: offset_h + self.crop_size, offset_w: offset_w + self.crop_size]
+        image_out = cv2.GaussianBlur(image_out, (5, 5), 0)
+        if np.random.uniform(0.0, 1.0) > 0.5:
+            image_out = image_out[:, ::-1, :]
+            label_out = label_out[:, ::-1]
+
+        image_out = image_out.transpose((2, 0, 1))
+        image_out = image_out.copy()
+        label_out = label_out.copy()
+        return image_out, label_out
 
     def __len__(self):
-        return len(self.img_path)
+        return len(self.filenames)
 
 
-def get_dataset_VOC(num_classes, lst_path, aug, repeat, shard_num, shard_id, batch_size):
-    dataset_VOC = VOC12Dataset(num_classes, lst_path, aug)
+def get_dataset_VOC(num_classes, root_path, aug, mode, repeat, shard_num, shard_id, batch_size, num_workers=1):
+    dataset_VOC = VOC12Dataset(root_path, num_classes, mode, aug)
+    dataset_size = len(dataset_VOC)
     data_set = ds.GeneratorDataset(source=dataset_VOC, column_names=["data", "label"],
                                    shuffle=True,
-                                   num_shards=shard_num, shard_id=shard_id)
+                                   num_shards=shard_num, shard_id=shard_id, num_parallel_workers=num_workers)
     data_set = data_set.shuffle(buffer_size=batch_size * 10)
     data_set = data_set.batch(batch_size, drop_remainder=True)
     data_set = data_set.repeat(repeat)
-    return data_set
+    return data_set, dataset_size
 
 
-def get_dataset_ADE(num_classes, root_path, aug, mode, repeat, num_readers, shard_num, shard_id, batch_size):
-    dataset_VOC = ADE20k(root_path=root_path, num_classes=num_classes, aug=aug, mode=mode)
-    data_set = de.GeneratorDataset(dataset=dataset_VOC, columns_list=["data", "label"],
-                                   shuffle=True,
-                                   num_shards=shard_num, shard_id=shard_id)
+def get_dataset_ADE(num_classes, root_path, aug, mode, repeat, shard_num, shard_id, batch_size, num_workers=1):
+    dataset_ADE = ADE20k(root_path=root_path, num_classes=num_classes, aug=aug, mode=mode)
+    dataset_size = len(dataset_ADE)
+    data_set = ds.GeneratorDataset(source=dataset_ADE, column_names=["data", "label"],
+                                   shuffle=True, num_shards=shard_num, shard_id=shard_id,
+                                   num_parallel_workers=num_workers)
     data_set = data_set.shuffle(buffer_size=batch_size * 10)
     data_set = data_set.batch(batch_size, drop_remainder=True)
     data_set = data_set.repeat(repeat)
-    return data_set
-
+    return data_set, dataset_size
