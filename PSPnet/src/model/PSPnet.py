@@ -3,20 +3,20 @@ import mindspore.nn as nn
 import mindspore.ops as ops
 import numpy as np
 from src.model.resnet import resnet50
-from mindspore import load_checkpoint, load_param_into_net
+from mindspore.train.serialization import load_param_into_net,load_checkpoint
 import mindspore.common.initializer as weight_init
 from mindspore import dtype as mstype
-
+# 加注释去掉的部分都是ModelArts不支持的，本地train可以用
 
 class ResNet(nn.Cell):
     def __init__(self, pretrained_path, pretrained=False):
         super(ResNet, self).__init__()
-        resnet = resnet50(10)
+        resnet = resnet50(1000)
         if pretrained:
             # 预训练的是CIFAR-10 数据集太小
             # 写一个shell脚本下载预训练权重
             param_dict = load_checkpoint(pretrained_path)
-            param_not_load = load_param_into_net(resnet, param_dict)
+            load_param_into_net(resnet, param_dict)
         self.layer1 = nn.SequentialCell(resnet.conv1, resnet.bn1, resnet.maxpool)
         self.layer2, self.layer3, self.layer4, self.layer5 = (
             resnet.layer1,
@@ -135,7 +135,6 @@ class PSPNet(nn.Cell):
         # --------------------------------------------------------------#
         # 	PSP模块，分区域进行池化
         #   分别分割成1x1的区域，2x2的区域，3x3的区域，6x6的区域
-        #   30,30,320 -> 30,30,80 -> 30,30,21
         # --------------------------------------------------------------#
         self.master_branch = nn.SequentialCell(
             _PSPModule(
@@ -148,11 +147,10 @@ class PSPNet(nn.Cell):
         )
 
         self.aux_branch = aux_branch
-        self.dropout = ops.Dropout2D(0.1)
+        # self.dropout = ops.Dropout2D(0.1)
         if self.aux_branch:
             # ---------------------------------------------------#
             # 	利用特征获得预测结果
-            #   30, 30, 96 -> 30, 30, 40 -> 30, 30, 21
             # ---------------------------------------------------#
             self.auxiliary_branch = nn.SequentialCell(
                 nn.Conv2d(
@@ -169,7 +167,7 @@ class PSPNet(nn.Cell):
             )
         self.resize = nn.ResizeBilinear()
         self.shape = ops.Shape()
-        self.init_weights(self.master_branch)
+        #self.init_weights(self.master_branch)
 
     def init_weights(self, *models):
         for model in models:
@@ -197,7 +195,7 @@ class PSPNet(nn.Cell):
         output = self.resize(output, size=(x_shape[2:4]))
         if self.aux_branch:
             output_aux = self.auxiliary_branch(x_aux)
-            output_aux,mask = self.dropout(output_aux)
+            #output_aux,mask = self.dropout(output_aux)
             output_aux = self.resize(output_aux, size=(x_shape[2:4]))
             return output_aux, output
         else:

@@ -67,7 +67,7 @@ class GeneratorLossCell(nn.Cell):
         generator_loss = (
             5e-3 * adversarial_loss
             + 1.0 * perceptual_loss
-            + 1e-2 * content_loss
+            + 1e-1 * content_loss
         )
         return (fake_hr, generator_loss, content_loss, perceptual_loss, adversarial_loss)
 

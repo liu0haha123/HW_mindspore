@@ -1,14 +1,14 @@
 import argparse
 import mindspore
 import time
+import os
+from mindspore.parallel import set_algo_parameters
 from mindspore.train.callback import ModelCheckpoint, CheckpointConfig
 from mindspore import Tensor, nn
 from mindspore.train.loss_scale_manager import FixedLossScaleManager
 from mindspore.train.model import Model
-from mindspore.communication.management import init
 from mindspore.nn.optim.momentum import Momentum
 from mindspore.train.callback import LossMonitor, TimeMonitor
-from mindspore.communication.management import get_rank
 from mindspore.train.serialization import load_param_into_net, load_checkpoint
 from mindspore.communication.management import init, get_rank, get_group_size
 from mindspore.common import set_seed
@@ -18,8 +18,7 @@ import moxing as mox
 from src.dataset.dataset import get_dataset_VOC, get_dataset_ADE
 from src.model import PSPnet
 from src.config import config
-from src.utils import metrics, util
-from src.utils.lr import get_lr
+from src.utils import lr
 from src.model.cell import Aux_CELoss_Cell
 
 
@@ -40,9 +39,10 @@ def parse_args():
 
     parser.add_argument("--data_url", type=str, default=None, help="Dataset path")
     parser.add_argument("--train_url", type=str, default=None, help="Train output path")
+    parser.add_argument("--modelArts_mode", type=bool, default=True)
     
     parser.add_argument(
-        "--platform",
+        "--device_target",
         type=str,
         default="Ascend",
         choices=("CPU", "GPU", "Ascend"),
@@ -51,7 +51,7 @@ def parse_args():
     parser.add_argument("--device_id", type=int, default=2, help="device num")
     parser.add_argument("--batch_size", type=int, default=8, help="batch_size")
     parser.add_argument("--epoch_size", type=int,
-                        default=500, help="epoch_size")
+                        default=50, help="epoch_size")
     parser.add_argument(
         "--root_path",
         type=str,
@@ -61,7 +61,7 @@ def parse_args():
     parser.add_argument(
         "--dataset",
         type=str,
-        default="VOC",
+        default="ADE",
         help="ADE / VOC",
     )
     parser.add_argument(
@@ -70,9 +70,12 @@ def parse_args():
     parser.add_argument(
         "--pretrained_path", type=str, help="pretrain resnet"
     )
+    parser.add_argument(
+        "--base_lr", type=float, default=0.0002, help="base_lr"
+    )
     parser.add_argument("--loss_scale", type=float,
                         default=1024.0, help="loss scale")
-    parser.add_argument("--rank", type=int, default=2,
+    parser.add_argument("--rank", type=int, default=0,
                         help="local rank of distributed")
     parser.add_argument(
         "--group_size", type=int, default=1, help="world size of distributed"
@@ -103,61 +106,51 @@ def train():
     args_opt = parse_args()
     config = read_config()
     # 这里开始
-    device_id = int(os.getenv("DEVICE_ID"))
     device_num = int(os.getenv("RANK_SIZE"))
-    
+    device_id = int(os.getenv("DEVICE_ID"))
+    rank_id = int(os.getenv('RANK_ID'))
+    args_opt.group_size = device_num
     local_data_url = "/cache/data"
     local_train_url = "/cache/lwPSP"
     local_zipfolder_url = "/cache/tarzip"
-    obs_res_path = "obs://heu-535/pretrain/resnet.ckpt"
+    local_pretrain_url = "/cache/pretrain"
+    obs_res_path = "obs://heu-535/pretrain"
     pretrain_filename = "resnet.ckpt"
-    filename = "dataPSP.zip"
+    filename = "data_PSP.zip"
     mox.file.make_dirs(local_train_url)
     print(f"train args: {args_opt}\ncfg: {config}")
-    args = parse_args()
-    if args.device_target == "CPU":
-        distribute = False
-        context.set_context(mode=context.GRAPH_MODE, save_graphs=False, device_target="CPU")
-    else:
-        context.set_context(mode=context.GRAPH_MODE, enable_auto_mixed_precision=True, save_graphs=False,
-                            device_target="Ascend", device_id=device_id)
+    context.set_context(mode=context.GRAPH_MODE,save_graphs=False,device_target="Ascend")
     # init multicards training
-    if args.modelArts_mode:
-        if device_num > 1:
-            init()
-            args.rank = get_rank()
-            args.group_size = get_group_size()
-            parallel_mode = ParallelMode.DATA_PARALLEL
-            context.set_auto_parallel_context(parallel_mode=parallel_mode, gradients_mean=True,
-                                              device_num=args.group_size)
-            local_data_url = os.path.join(local_data_url, str(device_id))
-            mox.file.make_dirs(local_data_url)
-            local_zip_path = os.path.join(local_zipfolder_url, str(device_id), filename)
-            print("device:%d, local_zip_path: %s" % (device_id, local_zip_path))
-            obs_zip_path = os.path.join(args_opt.data_url, filename)
-            mox.file.copy(obs_zip_path, local_zip_path)
-            mox.file.copy(obs_res_path,local_data_url)
-            print(
-                "====================== device %d copy end =================================\n"
-                % (device_id)
-            )
-            unzip_command = "unzip -o %s -d %s" % (local_zip_path, local_data_url)
-            os.system(unzip_command)
-            print(
-                "======================= device %d unzip end =================================\n"
-                % (device_id)
-            )
-    else:
-        if args.is_distributed:
-            init()
-            args.rank = get_rank()
-            args.group_size = get_group_size()
-
-            parallel_mode = ParallelMode.DATA_PARALLEL
-            context.set_auto_parallel_context(parallel_mode=parallel_mode, gradients_mean=True,
-                                              device_num=args.group_size)
+    if args_opt.modelArts_mode:
+        device_num = int(os.getenv("RANK_SIZE"))
+        device_id = int(os.getenv("DEVICE_ID"))
+        rank_id = int(os.getenv('RANK_ID'))
+        parallel_mode = ParallelMode.DATA_PARALLEL
+        context.set_context(device_id=device_id, enable_auto_mixed_precision=True)
+        context.set_auto_parallel_context(device_num=device_num,parallel_mode=parallel_mode, gradients_mean=True)
+        set_algo_parameters(elementwise_op_strategy_follow=True)
+        context.set_auto_parallel_context(all_reduce_fusion_config=[85, 160])
+        init()
+        local_data_url = os.path.join(local_data_url, str(device_id))
+        mox.file.make_dirs(local_data_url)
+        local_zip_path = os.path.join(local_zipfolder_url, str(device_id), filename)
+        print("device:%d, local_zip_path: %s" % (device_id, local_zip_path))
+        obs_zip_path = os.path.join(args_opt.data_url, filename)
+        mox.file.copy(obs_zip_path, local_zip_path)
+        print(
+            "====================== device %d copy end =================================\n"
+            % (device_id)
+        )
+        unzip_command = "unzip -o %s -d %s" % (local_zip_path, local_data_url)
+        os.system(unzip_command)
+        print(
+            "======================= device %d unzip end =================================\n"
+            % (device_id)
+        )
     # transfer dataset
-    local_pretrain_url = os.path.join(local_data_url, str(1),pretrain_filename)
+    local_pretrain_url = os.path.join(local_pretrain_url,pretrain_filename)
+    obs_pretrain_url = os.path.join(obs_res_path,pretrain_filename)
+    mox.file.copy(obs_pretrain_url, local_pretrain_url)
     local_data_url = local_data_url + "/data"
 
     if args_opt.dataset == "ADE":
@@ -176,8 +169,8 @@ def train():
             mode="train",
             aug=True,
             repeat=1,
-            shard_num=args_opt.rank,
-            shard_id=args_opt.group_size,
+            shard_num=args_opt.group_size,
+            shard_id=args_opt.rank,
             batch_size=args_opt.batch_size,
             num_workers=8
         )
@@ -193,7 +186,7 @@ def train():
             aux_branch=True,
         )
         dataset,dataset_len = get_dataset_VOC(root_path = local_data_url,num_classes=config["num_classes"],
-        mode="train",aug=True,repeat=1,shard_num=args_opt.rank,shard_id=args_opt.group_size,
+        mode="train",aug=True,repeat=1,shard_num=args_opt.group_size,shard_id=args_opt.rank,
         batch_size=args_opt.batch_size,num_workers=8)
         train_net = Aux_CELoss_Cell(PSPnet_model,config["num_classes"], config["ignore_label"])
     else:
@@ -204,22 +197,13 @@ def train():
         param_dict = load_checkpoint(args_opt.ckpt_pre_trained)
         load_param_into_net(train_net, param_dict)
         print("load_model {} success".format(args_opt.ckpt_pre_trained))
-    iters_per_check = dataset_len
+    iters_per_epoch = dataset_len
+    total_train_steps = iters_per_epoch * args_opt.epoch_size
     # get learning rate
-    lr = Tensor(
-        get_lr(
-            global_step=0,
-            lr_init=config["lr_init"],
-            lr_end=config["lr_end"],
-            lr_max=config["lr_max"],
-            warmup_epochs=config["warmup_epochs"],
-            total_epochs=args_opt.epoch_size,
-            steps_per_epoch=iters_per_check,
-        )
-    )
+    lr_iter = lr.poly_lr(args_opt.base_lr, total_train_steps, total_train_steps, end_lr=0.0, power=0.9)
     opt = Momentum(
         params=train_net.trainable_params(),
-        learning_rate=lr,
+        learning_rate=lr_iter,
         momentum=config["momentum"],
         weight_decay=0.0001,
         loss_scale=args_opt.loss_scale,
@@ -229,11 +213,11 @@ def train():
     manager_loss_scale = FixedLossScaleManager(
         args_opt.loss_scale, drop_overflow_update=False
     )
-    amp_level = "O0" if args_opt.platform == "CPU" else "O3"
+    amp_level = "O2"
     model = Model(train_net, optimizer=opt, amp_level=amp_level)
 
     # callback for saving ckpts
-    time_cb = TimeMonitor(data_size=iters_per_check)
+    time_cb = TimeMonitor(data_size=iters_per_epoch)
     loss_cb = LossMonitor()
     cbs = [time_cb, loss_cb]
 
@@ -247,7 +231,7 @@ def train():
     if device_id==0:
         cbs.append(ckpoint_cb)
     model.train(
-        args_opt.epoch_size, dataset, callbacks=cbs, dataset_sink_mode=False,
+        args_opt.epoch_size, dataset, callbacks=cbs, dataset_sink_mode=True,
     )
     if device_id == 0:
         mox.file.copy_parallel(local_train_url, args_opt.train_url)

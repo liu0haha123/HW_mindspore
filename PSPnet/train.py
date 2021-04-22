@@ -96,7 +96,7 @@ def train():
     config = read_config()
     print(f"train args: {args_opt}\ncfg: {config}")
     
-    context.set_context(mode=context.GRAPH_MODE,device_target="Ascend", save_graphs=False, device_id=5)
+    context.set_context(mode=context.GRAPH_MODE,device_target="Ascend", save_graphs=False, device_id=0)
     if args_opt.dataset == "ADE":
 
         PSPnet_model = PSPnet.PSPNet(
@@ -173,7 +173,7 @@ def train():
     )
     cbs.append(ckpoint_cb)
     model.train(
-        args_opt.epoch_size, dataset, callbacks=cbs, dataset_sink_mode=False,
+        args_opt.epoch_size, dataset, callbacks=cbs, dataset_sink_mode=True,
     )
 
 

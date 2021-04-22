@@ -43,8 +43,8 @@ def augment(img_in, img_tar, flip_h=True, rot=True):
             img_in = img_in.rotate(180)
             img_tar = img_tar.rotate(180)
             info_aug['trans'] = True
-    img_in = img_in.resize((128,128),Image.BILINEAR)
-    img_tar = img_tar.resize((512,512),Image.BILINEAR)
+    img_in = img_in.resize((32,32),Image.BILINEAR)
+    img_tar = img_tar.resize((128,128),Image.BILINEAR)
     return img_in, img_tar, info_aug
 
 

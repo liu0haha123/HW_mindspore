@@ -1,21 +1,17 @@
 """Evaluation"""
 import os
+import cv2
 import time
 import argparse
-import datetime
-import glob
 import numpy as np
 import mindspore.nn as nn
-from PIL import Image
 from mindspore import Tensor, context
-from mindspore.nn.optim.momentum import Momentum
-from mindspore.train.model import Model
 from mindspore.train.serialization import load_checkpoint, load_param_into_net
-from mindspore.ops import operations as P
-from mindspore.ops import functional as F
 from mindspore.common import dtype as mstype
+from mindspore import dataset as ds
+from mindspore.common import set_seed
 from src.model import PSPnet
-from src.datast.dataset import VOC12Dataset,ADE20k
+from src.dataset.dataset import VOC12Dataset,ADE20k
 from src.config import config
 class BuildEvalNetwork(nn.Cell):
     def __init__(self, network):
@@ -48,11 +44,14 @@ def parse_args(cloud_args=None):
     parser.add_argument('--crop_size', type=int, default=473, help='crop size')
     parser.add_argument('--image_mean', type=list, default=[103.53, 116.28, 123.675], help='image mean')
     parser.add_argument('--image_std', type=list, default=[57.375, 57.120, 58.395], help='image std')
-    parser.add_argument('--scales', type=float, action='append', help='scales of evaluation')
     parser.add_argument('--flip', action='store_true', help='perform left-right flip')
     parser.add_argument('--ignore_label', type=int, default=255, help='ignore label')
     parser.add_argument('--num_classes', type=int, default=21, help='number of classes')
-
+    parser.add_argument('--ckpt_path', type=str,
+                        default='./checkpoints/ADE_2-12_631.ckpt', help='eval data dir')
+    parser.add_argument('--scales', type=float, action='append',default=1.0,help='scales of evaluation')
+    parser.add_argument('--flip', action='store_true', default=True,help='perform left-right flip')
+    parser.add_argument('--crop_size', type=int, default=473, help='crop size')
     args_opt = parser.parse_args()
     return args_opt
 
@@ -100,7 +99,7 @@ def pre_process(args, img_, crop_size=473):
     return img_, resize_h, resize_w
 
 
-def eval_batch(args, eval_net, img_lst, crop_size=513, flip=True):
+def eval_batch(args, eval_net, img_lst, crop_size=473, flip=True):
     """eval_batch"""
     result_lst = []
     batch_size = len(img_lst)
@@ -131,7 +130,7 @@ def eval_batch(args, eval_net, img_lst, crop_size=513, flip=True):
 
 
 def eval_batch_scales(args, eval_net, img_lst, scales,
-                      base_crop_size=513, flip=True):
+                      base_crop_size=473, flip=True):
     """eval_batch_scales"""
     sizes_ = [int((base_crop_size - 1) * sc) + 1 for sc in scales]
     probs_lst = eval_batch(args, eval_net, img_lst, crop_size=sizes_[0], flip=flip)
@@ -155,43 +154,58 @@ def test():
     config = read_config()
     print(f"test args: {args_opt}\ncfg: {config}")
     context.set_context(
-        mode=context.GRAPH_MODE, device_target="Ascend", save_graphs=False, device_id=1
+        mode=context.GRAPH_MODE, device_target="Ascend", save_graphs=False, device_id=2
     )
-    PSPnet_model = PSPnet.PSPNet(
-        feature_size=config["feature_size"],
-        num_classes=args_opt.num_classes,
-        backbone=config["backbone"],
-        pretrained=False,
-        pretrained_path=config["pretrained_path"],
-        aux_branch=False,
-    )
+    if args_opt.dataset == "VOC":
+        PSPnet_model = PSPnet.PSPNet(
+            feature_size=config["feature_size"],
+            num_classes=args_opt.num_classes,
+            backbone=config["backbone"],
+            pretrained=False,
+            pretrained_path=config["pretrained_path"],
+            aux_branch=False,
+        )
 
-    dataset = VOC12Dataset(root_path=args_opt.data_path,num_classes=args_opt.num_classes,aug=False,mode="eval")
-    eval_net = BuildEvalNetwork(PSPnet_model)
-
+        dataset_eval = VOC12Dataset(root_path=args_opt.data_path,num_classes=args_opt.num_classes,aug=False,mode="eval")
+        dataset_eval = ds.GeneratorDataset(source=dataset_eval, column_names=["data", "label"],
+                                       shuffle=False)
+        dataset_eval = dataset_eval.batch(1)
+    else :
+        PSPnet_model = PSPnet.PSPNet(
+            feature_size=config["feature_size"],
+            num_classes=config["num_classes_ADE"],
+            backbone=config["backbone"],
+            pretrained=True,
+            pretrained_path=config["pretrained_path"],
+            aux_branch=True,
+        )
+        dataset_eval = ADE20k(root_path=args_opt.data_path,num_classes=args_opt.num_classes,aug=False,mode="eval")
+        dataset_eval = ds.GeneratorDataset(source=dataset_eval, column_names=["data", "label"],
+                                       shuffle=False)
+        dataset_eval = dataset_eval.batch(1)
+    eval_net = BuildEvalNetwork(network=PSPnet_model)
     # load model
-    param_dict = load_checkpoint(args.ckpt_path)
+    param_dict = load_checkpoint(args_opt.ckpt_path)
     load_param_into_net(eval_net, param_dict)
     eval_net.set_train(False)
-
-    test_data_iter = dataset.create_dict_iter()
+    test_data_iter = dataset_eval.create_dict_iter()
     # evaluate
-    hist = np.zeros((args.num_classes, args.num_classes))
+    hist = np.zeros((args_opt.num_classes, args_opt.num_classes))
     batch_img_lst = []
     batch_msk_lst = []
     bi = 0
     image_num = 0
-    for i, line in enumerate(test_data_iter):
+    for i, sample in enumerate(test_data_iter):
         image = sample['data'].asnumpy()
         label = sample['label'].asnumpy()
         batch_img_lst.append(image)
         batch_msk_lst.append(label)
         bi += 1
-        if bi == args.batch_size:
-            batch_res = eval_batch_scales(args, eval_net, batch_img_lst, scales=args.scales,
-                                          base_crop_size=args.crop_size, flip=args.flip)
-            for mi in range(args.batch_size):
-                hist += cal_hist(batch_msk_lst[mi].flatten(), batch_res[mi].flatten(), args.num_classes)
+        if bi == args_opt.batch_size:
+            batch_res = eval_batch_scales(args_opt, eval_net, batch_img_lst, scales=args_opt.scales,
+                                          base_crop_size=args_opt.crop_size, flip=args_opt.flip)
+            for mi in range(args_opt.batch_size):
+                hist += cal_hist(batch_msk_lst[mi].flatten(), batch_res[mi].flatten(), args_opt.num_classes)
 
             bi = 0
             batch_img_lst = []
@@ -200,10 +214,10 @@ def test():
         image_num = i
 
     if bi > 0:
-        batch_res = eval_batch_scales(args, eval_net, batch_img_lst, scales=args.scales,
-                                      base_crop_size=args.crop_size, flip=args.flip)
+        batch_res = eval_batch_scales(args_opt, eval_net, batch_img_lst, scales=args_opt.scales,
+                                      base_crop_size=args_opt.crop_size, flip=args_opt.flip)
         for mi in range(bi):
-            hist += cal_hist(batch_msk_lst[mi].flatten(), batch_res[mi].flatten(), args.num_classes)
+            hist += cal_hist(batch_msk_lst[mi].flatten(), batch_res[mi].flatten(), args_opt.num_classes)
         print('processed {} images'.format(image_num + 1))
 
     print(hist)
@@ -247,3 +261,5 @@ def test():
     final_str = ('final_pa :{:.5f} , final_miou:{:.5f}'.format(
         final_pa / len(test_data), final_miou/len(test_data)))
      """
+if __name__ == "__main__":
+    test()

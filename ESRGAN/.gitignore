@@ -111,3 +111,4 @@ module_test.py
 somas_meta/
 analyze_fail.dat
 src/model/vgg19_ImageNet.ckpt
+DIV2K.zip

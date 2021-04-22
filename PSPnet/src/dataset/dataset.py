@@ -9,7 +9,7 @@ import mindspore.common.dtype as mstype
 from mindspore.dataset.vision import Inter
 import mindspore.dataset.vision.c_transforms as C
 import mindspore.dataset.transforms.c_transforms as C2
-
+import matplotlib.pyplot as plt
 
 def get_data_list(data_list_file):
     with open(data_list_file, mode='r') as f:
@@ -105,6 +105,37 @@ class ADE20k():
         label_out = label_out.copy()
         return image_out, label_out
 
+    def resize_long(self, img, long_size=473):
+        h, w, _ = img.shape
+        if h > w:
+            new_h = long_size
+            new_w = int(1.0 * long_size * w / h)
+        else:
+            new_w = long_size
+            new_h = int(1.0 * long_size * h / w)
+        imo = cv2.resize(img, (new_w, new_h))
+        return imo
+
+
+    def pre_process(self, img_, crop_size=473):
+        """pre_process"""
+        # resize
+        img_ = self.resize_long(img_, crop_size)
+
+        # mean, std
+        image_mean = np.array(self.image_mean)
+        image_std = np.array(self.image_std)
+        img_ = (img_ - image_mean) / image_std
+
+        # pad to crop_size
+        pad_h = crop_size - img_.shape[0]
+        pad_w = crop_size - img_.shape[1]
+        if pad_h > 0 or pad_w > 0:
+            img_ = cv2.copyMakeBorder(img_, 0, pad_h, 0, pad_w, cv2.BORDER_CONSTANT, value=0)
+
+        # hwc to chw
+        img_ = img_.transpose((2, 0, 1))
+        return img_
 
     def __len__(self):
         return len(self.image_list)
@@ -118,6 +149,8 @@ class ADE20k():
         label = cv2.imread(filename_label, cv2.IMREAD_GRAYSCALE)
         if self.aug and self.mode=="train":
             image, label = self.preprocess_(image, label)
+        else:
+            image = self.pre_process(image)
 
         return image, label
 
@@ -161,6 +194,8 @@ class VOC12Dataset():
         label = cv2.imread(filename_label, cv2.IMREAD_GRAYSCALE)
         if self.aug and self.mode=="train":
             image, label = self.preprocess_(image, label)
+        else:
+            image = self.pre_process(image)
 
         return image, label
 
@@ -193,6 +228,38 @@ class VOC12Dataset():
         label_out = label_out.copy()
         return image_out, label_out
 
+    def resize_long(self, img, long_size=473):
+        h, w, _ = img.shape
+        if h > w:
+            new_h = long_size
+            new_w = int(1.0 * long_size * w / h)
+        else:
+            new_w = long_size
+            new_h = int(1.0 * long_size * h / w)
+        imo = cv2.resize(img, (new_w, new_h))
+        return imo
+
+
+    def pre_process(self, img_, crop_size=473):
+        """pre_process"""
+        # resize
+        img_ = self.resize_long(img_, crop_size)
+
+        # mean, std
+        image_mean = np.array(self.image_mean)
+        image_std = np.array(self.image_std)
+        img_ = (img_ - image_mean) / image_std
+
+        # pad to crop_size
+        pad_h = crop_size - img_.shape[0]
+        pad_w = crop_size - img_.shape[1]
+        if pad_h > 0 or pad_w > 0:
+            img_ = cv2.copyMakeBorder(img_, 0, pad_h, 0, pad_w, cv2.BORDER_CONSTANT, value=0)
+
+        # hwc to chw
+        img_ = img_.transpose((2, 0, 1))
+        return img_
+
     def __len__(self):
         return len(self.filenames)
 
@@ -219,3 +286,18 @@ def get_dataset_ADE(num_classes, root_path, aug, mode, repeat, shard_num, shard_
     data_set = data_set.batch(batch_size, drop_remainder=True)
     data_set = data_set.repeat(repeat)
     return data_set, dataset_size
+
+dataset_eval = VOC12Dataset(root_path="E:\\hw_ms\\data",num_classes=21,aug=False,mode="eval")
+#dataset_eval = ds.GeneratorDataset(source=dataset_eval, column_names=["data", "label"],shuffle=False)
+"""
+for sample in dataset_eval.create_dict_iterator(output_numpy=True):
+    image = sample["data"]
+    label = sample["label"]
+    plt.subplot(2,1,1)
+    plt.imshow(np.transpose(image,(1,2,0)))
+    plt.subplot(2,1,2)
+    plt.imshow(label)
+    plt.show()
+"""
+for i,data in enumerate(dataset_eval):
+    print(i)

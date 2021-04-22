@@ -7,17 +7,10 @@ pspnet_resnet50_GPU = {
     "input_size": [473, 473, 3],
     #   分类个数+1
     #   20+1
-    "resize_shape": [400, 400],
-    # 增广过程中的随机放缩大小
     "num_classes": 21,
     "num_classes_ADE": 150,
     # ResNet 提取后的feature大小 仅限VOC2012
     "feature_size": 15,
-    #   建议选项：
-    #   种类少（几类）时，设置为True
-    #   种类多（十几类）时，如果batch_size比较大（10以上），那么设置为True
-    #   种类多（十几类）时，如果batch_size比较小（10以下），那么设置为False
-    "dice_loss": False,
     #   主干网络预训练权重的使用
     "pretrained": True,
     "backbone": "resnet50",
@@ -36,7 +29,6 @@ pspnet_resnet50_GPU = {
     # 优化器相关参数
     "momentum": 0.9,
     # 网络声明时的其他参数
-    "backbone":"resnet50",
     "name": "pspnet_resnet50",
     "pretrained_link": "https://download.mindspore.cn/model_zoo/official/cv/resnet/resnet50_v1.5_ascend_0.3.0_cifar10_official_classification_20200718/resnet50.ckpt",
     "pretrained_path": "./data/resnet.ckpt"

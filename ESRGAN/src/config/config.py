@@ -11,7 +11,7 @@ ESRGAN_config = {
     "D_nf": 64,
     # training setting
     "niter": 400000,
-    "lr_G": [1e-4, 5e-5, 2e-5, 1e-5],
+    "lr_G": [2e-4, 1e-4, 5e-5, 2e-5],
     "lr_D": [1e-4, 5e-5, 2e-5, 1e-5],
     "lr_steps": [50000, 100000, 200000, 300000],
 
@@ -38,7 +38,7 @@ PSNR_config = {
     # training setting
     "niter": 400000,
     "lr": [2e-4, 1e-4, 5e-5, 2e-5],
-    "lr_steps": [200000, 400000, 600000, 800000],
+    "lr_steps": [20000, 40000, 60000, 80000],
 
     "save_steps": 5000,
     "down_factor": 4

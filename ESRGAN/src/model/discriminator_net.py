@@ -1,11 +1,9 @@
 import mindspore.nn as nn
 import mindspore
-import numpy as np
-from mindspore import Tensor
 
 
-class VGGStyleDiscriminator512(nn.Cell):
-    """VGG style discriminator with input size 512 x 512.
+class VGGStyleDiscriminator128(nn.Cell):
+    """VGG style discriminator with input size 128 x 128.
     Args:
         num_in_ch (int): Channel number of inputs. Default: 3.
         num_feat (int): Channel number of base intermediate features.
@@ -13,7 +11,7 @@ class VGGStyleDiscriminator512(nn.Cell):
     """
 
     def __init__(self, num_in_ch, num_feat):
-        super(VGGStyleDiscriminator512, self).__init__()
+        super(VGGStyleDiscriminator128, self).__init__()
 
         self.conv0_0 = nn.Conv2d(
             num_in_ch, num_feat, 3, 1, padding=1, has_bias=True, pad_mode="pad"
@@ -50,15 +48,8 @@ class VGGStyleDiscriminator512(nn.Cell):
         )
         self.bn3_1 = nn.BatchNorm2d(num_feat * 8, affine=True)
 
-        self.conv4_0 = nn.Conv2d(
-            num_feat * 8, num_feat * 8, 3, 1, padding=1, has_bias=False, pad_mode="pad"
-        )
-        self.bn4_0 = nn.BatchNorm2d(num_feat * 8, affine=True)
-        self.conv4_1 = nn.Conv2d(
-            num_feat * 8, num_feat * 8, 4, 2, padding=1, has_bias=False, pad_mode="pad"
-        )
         self.bn4_1 = nn.BatchNorm2d(num_feat * 8, affine=True)
-        self.linear1 = nn.Dense(num_feat * 8 * 4 * 4* 16, 100)
+        self.linear1 = nn.Dense(num_feat * 8 * 4 * 4 * 4, 100)
         self.linear2 = nn.Dense(100, 1)
         self.lrelu = nn.LeakyReLU(0.2)
         self.flatten = nn.Flatten()
@@ -83,12 +74,9 @@ class VGGStyleDiscriminator512(nn.Cell):
         feat = self.lrelu(self.bn3_0(self.conv3_0(feat)))
         feat = self.lrelu(self.bn3_1(self.conv3_1(feat)))  # output spatial size: (8, 8)
 
-        feat = self.lrelu(self.bn4_0(self.conv4_0(feat)))
-        feat = self.lrelu(self.bn4_1(self.conv4_1(feat)))  # output spatial size: (4, 4)
 
         feat = self.flatten(feat)
         feat = self.lrelu(self.linear1(feat))
 
         out = self.linear2(feat)
         return out
-
