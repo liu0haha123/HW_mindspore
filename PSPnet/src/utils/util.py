@@ -1,120 +1,116 @@
 import time
 import numpy as np
-from mindspore import Tensor
-from mindspore import nn
-from mindspore.common import dtype as mstype
-from mindspore import context
-from mindspore.communication.management import get_rank, init, get_group_size
-from mindspore.train.model import ParallelMode
-from mindspore.train.callback import ModelCheckpoint, CheckpointConfig
+import os
+
+def check_mkdir(dir_name):
+    if not os.path.exists(dir_name):
+        os.mkdir(dir_name)
 
 
-from mindspore.train.callback import Callback
-from mindspore.train.serialization import load_checkpoint, load_param_into_net
+def check_makedirs(dir_name):
+    if not os.path.exists(dir_name):
+        os.makedirs(dir_name)
+
+def intersectionAndUnion(output, target, K, ignore_index=255):
+    # 'K' classes, output and target sizes are N or N * L or N * H * W, each value in range 0 to K - 1.
+    assert (output.ndim in [1, 2, 3])
+    assert output.shape == target.shape
+    output = output.reshape(output.size).copy()
+    target = target.reshape(target.size)
+    output[np.where(target == ignore_index)[0]] = ignore_index
+    intersection = output[np.where(output == target)[0]]
+    area_intersection, _ = np.histogram(intersection, bins=np.arange(K+1))
+    area_output, _ = np.histogram(output, bins=np.arange(K+1))
+    area_target, _ = np.histogram(target, bins=np.arange(K+1))
+    area_union = area_output + area_target - area_intersection
+    return area_intersection, area_union, area_target
+
+# 设标签宽W，长H
+def fast_hist(a, b, n):
+    # --------------------------------------------------------------------------------#
+    #   a是转化成一维数组的标签，形状(H×W,)；b是转化成一维数组的预测结果，形状(H×W,)
+    # --------------------------------------------------------------------------------#
+    k = (a >= 0) & (a < n)
+    # --------------------------------------------------------------------------------#
+    #   np.bincount计算了从0到n**2-1这n**2个数中每个数出现的次数，返回值形状(n, n)
+    #   返回中，写对角线上的为分类正确的像素点
+    # --------------------------------------------------------------------------------#
+    return np.bincount(n * a[k].astype(int) + b[k], minlength=n ** 2).reshape(n, n)
 
 
-class Monitor(Callback):
-    """
-    Monitor loss and time.
+def calc_semantic_segmentation_confusion(pred_labels, gt_labels, num_classes):
+    pred_labels = iter(pred_labels)
+    gt_labels = iter(gt_labels)
 
-    Args:
-        lr_init (numpy array): train lr
+    n_class = num_classes
+    confusion = np.zeros((n_class, n_class), dtype=np.int64)
+    for pred_label, gt_label in six.moves.zip(pred_labels, gt_labels):
+        if pred_label.ndim != 2 or gt_label.ndim != 2:
+            raise ValueError('ndim of labels should be two.')
+        if pred_label.shape != gt_label.shape:
+            raise ValueError('Shape of ground truth and prediction should'
+                             ' be same.')
+        pred_label = pred_label.flatten()   
+        gt_label = gt_label.flatten()   
 
-    Returns:
-        None
-    """
+        # Dynamically expand the confusion matrix if necessary.
+        lb_max = np.max((pred_label, gt_label))
+        # print(lb_max)
+        if lb_max >= n_class:
+            expanded_confusion = np.zeros(
+                (lb_max + 1, lb_max + 1), dtype=np.int64)
+            expanded_confusion[0:n_class, 0:n_class] = confusion
 
-    def __init__(self, lr_init=None):
-        super(Monitor, self).__init__()
-        self.lr_init = lr_init
-        self.lr_init_len = len(lr_init)
+            n_class = lb_max + 1
+            confusion = expanded_confusion
 
-    def epoch_begin(self, run_context):
-        self.losses = []
-        self.epoch_time = time.time()
+        # Count statistics from valid pixels.  极度巧妙 × class_nums 正好使得每个ij能够对应.
+        mask = gt_label >= 0
+        confusion += np.bincount(
+            n_class * gt_label[mask].astype(int) + pred_label[mask],
+            minlength=n_class ** 2)\
+            .reshape((n_class, n_class))
 
-    def epoch_end(self, run_context):
-        cb_params = run_context.original_args()
+    for iter_ in (pred_labels, gt_labels):
+        # This code assumes any iterator does not contain None as its items.
+        if next(iter_, None) is not None:
+            raise ValueError('Length of input iterables need to be same')
 
-        epoch_mseconds = (time.time() - self.epoch_time) * 1000
-        per_step_mseconds = epoch_mseconds / cb_params.batch_num
-        print("epoch time: {:5.3f}, per step time: {:5.3f}, avg loss: {:5.3f}".format(epoch_mseconds,
-                                                                                      per_step_mseconds,
-                                                                                      np.mean(self.losses)))
-
-    def step_begin(self, run_context):
-        self.step_time = time.time()
-
-    def step_end(self, run_context):
-        cb_params = run_context.original_args()
-        step_mseconds = (time.time() - self.step_time) * 1000
-        step_loss = cb_params.net_outputs
-
-        if isinstance(step_loss, (tuple, list)) and isinstance(step_loss[0], Tensor):
-            step_loss = step_loss[0]
-        if isinstance(step_loss, Tensor):
-            step_loss = np.mean(step_loss.asnumpy())
-
-        self.losses.append(step_loss)
-        cur_step_in_epoch = (cb_params.cur_step_num - 1) % cb_params.batch_num
-
-        print("epoch: [{:3d}/{:3d}], step:[{:5d}/{:5d}], loss:[{:5.3f}/{:5.3f}], time:[{:5.3f}], lr:[{:5.3f}]".format(
-            cb_params.cur_epoch_num -
-            1, cb_params.epoch_num, cur_step_in_epoch, cb_params.batch_num, step_loss,
-            np.mean(self.losses), step_mseconds, self.lr_init[cb_params.cur_step_num - 1]))
+    return confusion
 
 
-def load_ckpt(network, pretrain_ckpt_path, trainable=True):
-    """
-    incremental_learning or not
-    """
-    param_dict = load_checkpoint(pretrain_ckpt_path)
-    load_param_into_net(network, param_dict)
-    if not trainable:
-        for param in network.get_parameters():
-            param.requires_grad = False
+# PA
+def Pixel_Accuracy(confusion_matrix):
+    Acc = np.diag(confusion_matrix).sum() / confusion_matrix.sum()
+    return Acc
+
+# MIoU
 
 
+def Mean_Intersection_over_Union(confusion_matrix):
+    MIoU = np.diag(confusion_matrix) / (
+        np.sum(confusion_matrix, axis=1) + np.sum(confusion_matrix, axis=0) -
+        np.diag(confusion_matrix))
+    MIoU = np.nanmean(MIoU)  # 跳过0值求mean,shape:[21]
+    return MIoU
 
-def switch_precision(net, data_type, platform):
-    if platform == "Ascend":
-        net.to_float(data_type)
-        for _, cell in net.cells_and_names():
-            if isinstance(cell, nn.Dense):
-                cell.to_float(mstype.float32)
-
-def context_device_init(platform,run_distribute,device_id,rank_size):
-    if platform == "CPU":
-        context.set_context(mode=context.GRAPH_MODE, device_target=platform, save_graphs=False)
-
-    elif platform == "GPU":
-        context.set_context(mode=context.GRAPH_MODE, device_target=platform, save_graphs=False)
-        if run_distribute:
-            init("nccl")
-            context.set_auto_parallel_context(device_num=get_group_size(),
-                                              parallel_mode=ParallelMode.DATA_PARALLEL,
-                                              gradients_mean=True)
-
-    elif platform == "Ascend":
-        context.set_context(mode=context.GRAPH_MODE, device_target=platform, device_id=device_id,
-                            save_graphs=False)
-        if run_distribute:
-            context.set_auto_parallel_context(device_num=rank_size,
-                                              parallel_mode=ParallelMode.DATA_PARALLEL,
-                                              gradients_mean=True)
-            init()
-    else:
-        raise ValueError("Only support CPU, GPU and Ascend.")
+# MPA
 
 
-def set_context(config):
-    if config.platform == "CPU":
-        context.set_context(mode=context.GRAPH_MODE, device_target=config.platform,
-                            save_graphs=False)
-    elif config.platform == "Ascend":
-        context.set_context(mode=context.GRAPH_MODE, device_target=config.platform,
-                            device_id=config.device_id, save_graphs=False)
-    elif config.platform == "GPU":
-        context.set_context(mode=context.GRAPH_MODE,
-                            device_target=config.platform, save_graphs=False)
+def Pixel_Accuracy_Class(confusion_matrix):
+    Acc = np.diag(confusion_matrix) / confusion_matrix.sum(axis=1)
+    Acc = np.nanmean(Acc)
+    return Acc
 
+
+def eval_semantic_segmentation(pred_labels, gt_labels):
+    confusion = calc_semantic_segmentation_confusion(pred_labels, gt_labels)
+    pa = Pixel_Accuracy(confusion)
+    mpa = Pixel_Accuracy_Class(confusion)
+    miou = Mean_Intersection_over_Union(confusion)
+
+    return {
+        'pa': pa,
+        "mpa": mpa,
+        'miou': miou,
+    }

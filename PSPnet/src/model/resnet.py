@@ -544,5 +544,10 @@ def resnet101(class_num=1001):
                   [256, 512, 1024, 2048],
                   [1, 2, 2, 2],
                   class_num)
+"""
+model= resnet50()
 
-
+cell_n = model.cells_and_names()
+for c,n in cell_n:
+    print(c)
+"""

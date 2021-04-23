@@ -9,7 +9,7 @@ import mindspore.common.dtype as mstype
 from mindspore.dataset.vision import Inter
 import mindspore.dataset.vision.c_transforms as C
 import mindspore.dataset.transforms.c_transforms as C2
-import matplotlib.pyplot as plt
+
 
 def get_data_list(data_list_file):
     with open(data_list_file, mode='r') as f:
@@ -113,15 +113,13 @@ class ADE20k():
         pad_h_half = int(pad_h / 2)
         pad_w_half = int(pad_w / 2)
         if pad_h > 0 or pad_w > 0:
-            image = cv2.copyMakeBorder(image, pad_h_half, pad_h - pad_h_half, pad_w_half, pad_w - pad_w_half,
-                                       cv2.BORDER_CONSTANT, value=0)
-            label = cv2.copyMakeBorder(label, pad_h_half, pad_h - pad_h_half, pad_w_half, pad_w - pad_w_half,
-                                       cv2.BORDER_CONSTANT, value=self.ignore_label)
+            image = cv2.copyMakeBorder(image, pad_h_half, pad_h - pad_h_half, pad_w_half, pad_w - pad_w_half, cv2.BORDER_CONSTANT, value=0)
+            label = cv2.copyMakeBorder(label, pad_h_half, pad_h - pad_h_half, pad_w_half, pad_w - pad_w_half, cv2.BORDER_CONSTANT, value=self.ignore_label)
         h, w = label.shape
         h_off = int((h - self.crop_size) / 2)
         w_off = int((w - self.crop_size) / 2)
-        image = image[h_off:h_off + self.crop_size, w_off:w_off + self.crop_size]
-        label = label[h_off:h_off + self.crop_size, w_off:w_off + self.crop_size]
+        image = image[h_off:h_off+self.crop_size, w_off:w_off+self.crop_size]
+        label = label[h_off:h_off+self.crop_size, w_off:w_off+self.crop_size]
 
         image = (image - self.image_mean) / self.image_std
         image = image.transpose((2, 0, 1))
@@ -137,7 +135,7 @@ class ADE20k():
         image = cv2.imread(filename_image, cv2.IMREAD_COLOR)  # BGR 3 channel ndarray wiht shape H * W * 3
         image = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)  # convert cv2 read image from BGR order to RGB order
         label = cv2.imread(filename_label, cv2.IMREAD_GRAYSCALE)
-        if self.mode == "train":
+        if self.mode=="train":
             image, label = self.preprocess_(image, label)
         else:
             image, label = self.preprocess_eval(image, label)
@@ -182,7 +180,7 @@ class VOC12Dataset():
 
         filename_label = self.labels_root + "/" + str(filename) + '.png'
         label = cv2.imread(filename_label, cv2.IMREAD_GRAYSCALE)
-        if self.mode == "train":
+        if self.mode=="train":
             image, label = self.preprocess_(image, label)
         else:
             image, label = self.preprocess_eval(image, label)
@@ -224,19 +222,19 @@ class VOC12Dataset():
         pad_h_half = int(pad_h / 2)
         pad_w_half = int(pad_w / 2)
         if pad_h > 0 or pad_w > 0:
-            image = cv2.copyMakeBorder(image, pad_h_half, pad_h - pad_h_half, pad_w_half, pad_w - pad_w_half,
-                                       cv2.BORDER_CONSTANT, value=0)
-            label = cv2.copyMakeBorder(label, pad_h_half, pad_h - pad_h_half, pad_w_half, pad_w - pad_w_half,
-                                       cv2.BORDER_CONSTANT, value=self.ignore_label)
+            image = cv2.copyMakeBorder(image, pad_h_half, pad_h - pad_h_half, pad_w_half, pad_w - pad_w_half, cv2.BORDER_CONSTANT, value=0)
+            label = cv2.copyMakeBorder(label, pad_h_half, pad_h - pad_h_half, pad_w_half, pad_w - pad_w_half, cv2.BORDER_CONSTANT, value=self.ignore_label)
         h, w = label.shape
         h_off = int((h - self.crop_size) / 2)
         w_off = int((w - self.crop_size) / 2)
-        image = image[h_off:h_off + self.crop_size, w_off:w_off + self.crop_size]
-        label = label[h_off:h_off + self.crop_size, w_off:w_off + self.crop_size]
+        image = image[h_off:h_off+self.crop_size, w_off:w_off+self.crop_size]
+        label = label[h_off:h_off+self.crop_size, w_off:w_off+self.crop_size]
 
         image = (image - self.image_mean) / self.image_std
         image = image.transpose((2, 0, 1))
         return image, label
+        
+
 
     def __len__(self):
         return len(self.filenames)
@@ -270,14 +268,3 @@ def get_dataset_ADE(num_classes, root_path, aug, mode, repeat, shard_num, shard_
     data_set = data_set.repeat(repeat)
     return data_set, dataset_size
 
-dataset_eval = VOC12Dataset(root_path="E:\\hw_ms\\data",num_classes=21,aug=False,mode="eval")
-dataset_eval = ds.GeneratorDataset(source=dataset_eval, column_names=["data", "label"],shuffle=False)
-
-for i,data in enumerate(dataset_eval.create_dict_iterator(output_numpy=True)):
-    image = data["data"]
-    label = data["label"]
-    plt.subplot(2,1,1)
-    plt.imshow(np.transpose(image,(1,2,0)))
-    plt.subplot(2,1,2)
-    plt.imshow(label)
-    plt.show()

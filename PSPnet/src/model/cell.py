@@ -27,7 +27,7 @@ class Aux_CELoss_Cell(nn.Cell):
         predict_aux, predict = self.network(image)
         CE_loss = self.loss(predict, target)
         CE_loss_aux = self.loss(predict_aux, target)
-        loss = CE_loss + 0.4 * CE_loss_aux
+        loss = CE_loss + (0.4 * CE_loss_aux)
 
         return loss
 

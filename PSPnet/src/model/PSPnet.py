@@ -141,9 +141,6 @@ class PSPNet(nn.Cell):
                 norm_layer=norm_layer,
                 feature_shape=self.feature_shape,
             ),
-            nn.Conv2d(out_channel//4, out_channel//4, kernel_size=3,padding=1,pad_mode="pad",has_bias=False),
-            nn.BatchNorm2d(out_channel//4),
-            nn.ReLU(),
             nn.Conv2d(out_channel // 4, num_classes, kernel_size=1),
         )
 
@@ -168,7 +165,7 @@ class PSPNet(nn.Cell):
             )
         self.resize = nn.ResizeBilinear()
         self.shape = ops.Shape()
-        self.init_weights(self.master_branch)
+        #self.init_weights(self.master_branch)
 
     def init_weights(self, *models):
         for model in models:
@@ -201,9 +198,3 @@ class PSPNet(nn.Cell):
             return output_aux, output
         else:
             return output
-
-PSP = PSPNet(pretrained=False,pretrained_path="",aux_branch=True)
-
-test_1 = mindspore.Tensor(np.random.random(size=(8,3,473,473)),dtype=mindspore.float32)
-out = PSP(test_1)
-print(out[0].shape,out[1].shape)
