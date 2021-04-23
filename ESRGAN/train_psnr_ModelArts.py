@@ -1,8 +1,4 @@
 import mindspore
-import os
-import moxing as mox
-from mindspore.context import ParallelMode
-from mindspore.train.loss_scale_manager import FixedLossScaleManager
 from mindspore import nn
 from src.dataset.dataset_DIV2K import get_dataset_DIV2K
 from src.model.RRDB_Net import RRDBNet
@@ -45,8 +41,8 @@ def parse_args():
     )
     parser.add_argument("--loss_scale", type=float,
                         default=1024.0, help="loss scale")
-    parser.add_argument("--batch_size", type=int, default=16, help="batch_size")
-    parser.add_argument("--epoch_size", type=int, default=10, help="epoch_size")
+    parser.add_argument("--batch_size", type=int, default=4, help="batch_size")
+    parser.add_argument("--epoch_size", type=int, default=20, help="epoch_size")
     parser.add_argument("--rank", type=int, default=0, help="local rank of distributed")
     parser.add_argument(
         "--group_size", type=int, default=1, help="world size of distributed"
@@ -59,7 +55,7 @@ def parse_args():
     )
     # 分布式
 
-    parser.add_argument("--distribute", type=bool, default=True, help="run distribute")
+    parser.add_argument("--distribute", type=bool, default=False, help="run distribute")
     
     args, _ = parser.parse_known_args()
     return args
@@ -82,7 +78,7 @@ def train(config):
     mox.file.make_dirs(local_train_url)
     context.set_context(mode=context.GRAPH_MODE,save_graphs=False,device_target="Ascend")
     # init multicards training
-    if args_opt.modelArts_mode:
+    if args.modelArts_mode:
         device_num = int(os.getenv("RANK_SIZE"))
         device_id = int(os.getenv("DEVICE_ID"))
         rank_id = int(os.getenv('RANK_ID'))
@@ -135,21 +131,20 @@ def train(config):
     lr = nn.piecewise_constant_lr(
         milestone=config_psnr["lr_steps"], learning_rates=config_psnr["lr"]
     )
-    # loss scale
-    manager_loss_scale = FixedLossScaleManager(args_opt.loss_scale, drop_overflow_update=False)
-    amp_level = "O2"
     opt = nn.Adam(
-        params=model_psnr.trainable_params(), learning_rate=lr, beta1=0.9, beta2=0.99
+        params=model_psnr.trainable_params(), learning_rate=lr, beta1=0.9, beta2=0.99,loss_scale=args_opt.loss_scale
     )
     loss = nn.L1Loss()
     loss.add_flags_recursive(fp32=True)
-
+    # loss scale
+    manager_loss_scale = FixedLossScaleManager(args_opt.loss_scale, drop_overflow_update=False)
+    amp_level = "O2"
     train_net = BuildTrainNetwork(model_psnr, loss)
     iters_per_check = dataset_len
     model = Model(train_net, optimizer=opt)
     
     # callback for saving ckpts
-    time_cb = TimeMonitor(data_size=iters_per_check)
+    time_cb = TimeMonitor(data_size=)
     loss_cb = LossMonitor()
     cbs = [time_cb, loss_cb]
 
@@ -165,7 +160,7 @@ def train(config):
         cbs.append(ckpoint_cb)
 
     model.train(
-        args_opt.epoch_size, dataset, callbacks=cbs, dataset_sink_mode=True,
+        args_opt.epoch_size, dataset, callbacks=cbs, dataset_sink_mode=False,
     )
     
     if device_id == 0:

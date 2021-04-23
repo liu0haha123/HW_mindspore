@@ -142,3 +142,4 @@ dmypy.json
 ESRGAN/data
 PSPnet/data
 data/
+PSPnet/.gitignore

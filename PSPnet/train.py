@@ -22,18 +22,6 @@ from src.utils.lr import poly_lr
 from src.model.cell import Aux_CELoss_Cell
 
 
-class BuildTrainNetwork(nn.Cell):
-    def __init__(self, network, criterion):
-        super(BuildTrainNetwork, self).__init__()
-        self.network = network
-        self.criterion = criterion
-
-    def construct(self, input_data, label):
-        output = self.network(input_data)
-        net_loss = self.criterion(output, label)
-        return net_loss
-
-
 def parse_args():
     parser = argparse.ArgumentParser(description="PSPnet")
     parser.add_argument(

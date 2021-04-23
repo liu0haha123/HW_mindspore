@@ -31,6 +31,8 @@ def parse_args():
         default=0,
         help="device id of GPU or Ascend. (Default: None)",
     )
+    parser.add_argument("--loss_scale", type=float,
+                        default=1024.0, help="loss scale")
     parser.add_argument(
         "--aug", type=bool, default=True, help="Use augement for dataset"
     )
@@ -77,7 +79,7 @@ def train(config):
         milestone=config_psnr["lr_steps"], learning_rates=config_psnr["lr"]
     )
     opt = nn.Adam(
-        params=model_psnr.trainable_params(), learning_rate=lr, beta1=0.9, beta2=0.99
+        params=model_psnr.trainable_params(), learning_rate=lr, beta1=0.9, beta2=0.99,loss_scale=args_opt.loss_scale
     )
     loss = nn.L1Loss()
     loss.add_flags_recursive(fp32=True)

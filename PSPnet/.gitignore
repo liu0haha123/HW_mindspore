@@ -109,3 +109,4 @@ kernel_meta/
 checkpoints/
 somas_meta/
 analyze_fail.dat
+eval_new.py

@@ -112,3 +112,6 @@ somas_meta/
 analyze_fail.dat
 src/model/vgg19_ImageNet.ckpt
 DIV2K.zip
+src/model/psnr-1_31523.ckpt
+analyze_fail.dat
+images/

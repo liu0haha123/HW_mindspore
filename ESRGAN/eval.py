@@ -7,9 +7,8 @@ import glob
 import numpy as np
 import cv2
 import mindspore.nn as nn
-from PIL import Image
+from mindspore.nn import PSNR,SSIM
 from mindspore import Tensor, context
-from mindspore.nn.optim.momentum import Momentum
 from mindspore.train.model import Model
 from mindspore.train.serialization import load_checkpoint, load_param_into_net
 from mindspore.ops import operations as P
@@ -73,16 +72,16 @@ def test():
         nf=config_psnr["G_nf"],
         nb=config_psnr["G_nb"],
     )
-    dataset = get_dataset_DIV2K(
+    dataset,dataset_len = get_dataset_DIV2K(
         base_dir="./data",
         downsample_factor=config_psnr["down_factor"],
-        mode="eval",
+        mode="valid",
         aug=False,
         repeat=1,
         num_readers=4,
         shard_id=args.rank,
         shard_num=args.group_size,
-        batch_size=args.batch_size,
+        batch_size=1,
     )
 
     eval_net = BuildEvalNetwork(model_psnr)
@@ -91,22 +90,34 @@ def test():
     param_dict = load_checkpoint(args.ckpt_path)
     load_param_into_net(eval_net, param_dict)
     eval_net.set_train(False)
-
-    test_data_iter = dataset.create_dict_iter()
-
+    ssim = nn.SSIM()
+    psnr = nn.PSNR()
+    test_data_iter = dataset.create_dict_iter(out_numpy=False)
+    psnr_bic_all = 0.0
+    psnr_real_all = 0.0
+    ssim_bic_all = 0.0
+    ssim_real_all = 0.0
     for i, sample in enumerate(test_data):
         lr = sample['inputs']
         real_hr = sample['target']
         gen_hr = eval_net(lr)
-        bic_hr = (imresize_np(lr*255).asnumpy(),4).astype(np.uint8)
-        real_hr = (real_hr*255).asnumpy()
-        gen_hr = (gen_hr*255).asnumpy()
-        print(str_format.format(
-                    calculate_psnr(rgb2ycbcr(bic_img), rgb2ycbcr(real_hr)),
-                    calculate_ssim(rgb2ycbcr(bic_img), rgb2ycbcr(real_hr)),
-                    calculate_psnr(rgb2ycbcr(gen_hr), rgb2ycbcr(real_hr)),
-                    calculate_ssim(rgb2ycbcr(gen_hr), rgb2ycbcr(real_hr))))
+        # 这里用mindspore的双三次插值采样结果  
+        bic_hr = None
+        psnr_bic = psnr(gen_hr,bic_hr)
+        psnr_real = psnr(gen_hr,real_hr)
+        ssim_bic = ssim(gen_hr,bic_hr)
+        ssim_real = ssim(gen_hr,real_hr)
+        psnr_bic_all += psnr_bic
+        psnr_real_all = psnr_real
+        ssim_bic_all = ssim_bic
+        ssim_real_all = ssim_real
+        print(psnr_bic,psnr_real,ssim_bic,ssim_real)
         result_img_path = os.path.join(args_opt.results_path + "DIV2K", 'Bic_SR_HR_' + str(i))
-        results_img = np.concatenate((bic_img, sr_img, hr_img), 1)
-        cv2.imwrite(result_img_path, results_img)
-        
+        if i%10 == 0:
+            results_img = np.concatenate((bic_img[0].asnumpy(), sr_img[0].asnumpy(), hr_img[0].asnumpy()), 1)
+            cv2.imwrite(result_img_path, results_img)
+    psnr_bic_all += psnr_bic_all/dataset_len
+    psnr_real_all = psnr_real_all/dataset_len
+    ssim_bic_all = ssim_bic_all/dataset_len
+    ssim_real_all = ssim_real_all/dataset_len
+    print(psnr_bic_all,psnr_real_all,ssim_bic_all,ssim_real_all)

@@ -38,7 +38,7 @@ PSNR_config = {
     # training setting
     "niter": 400000,
     "lr": [2e-4, 1e-4, 5e-5, 2e-5],
-    "lr_steps": [20000, 40000, 60000, 80000],
+    "lr_steps": [200000, 400000, 600000, 800000],
 
     "save_steps": 5000,
     "down_factor": 4
