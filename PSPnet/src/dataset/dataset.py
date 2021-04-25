@@ -6,6 +6,7 @@ from PIL import Image, ImageOps, ImageFilter
 import numpy as np
 import cv2
 import mindspore.common.dtype as mstype
+import random
 from mindspore.dataset.vision import Inter
 import mindspore.dataset.vision.c_transforms as C
 import mindspore.dataset.transforms.c_transforms as C2
@@ -75,6 +76,16 @@ class ADE20k():
         self.image_std = np.array([58.395, 57.120, 57.375])
         self.ignore_label = 255
         self.crop_size = 473
+        self.rotate_angle = [-10.0,10.0]
+
+    def rotate(self,image,label):
+        if np.random.uniform(0.0, 1.0) > 0.5:
+            angle = self.rotate_angle[0] + (self.rotate_angle[1] - self.rotate_angle[0]) * random.random()
+            h, w = label.shape
+            matrix = cv2.getRotationMatrix2D((w / 2, h / 2), angle, 1)
+            image = cv2.warpAffine(image, matrix, (w, h), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT, borderValue=0)
+            label = cv2.warpAffine(label, matrix, (w, h), flags=cv2.INTER_NEAREST, borderMode=cv2.BORDER_CONSTANT, borderValue=self.ignore_label)
+        return image, label
 
     def preprocess_(self, image, label):
         """SegDataset.preprocess_"""
@@ -101,8 +112,8 @@ class ADE20k():
             label_out = label_out[:, ::-1]
 
         image_out = image_out.transpose((2, 0, 1))
-        image_out = image_out.copy()
-        label_out = label_out.copy()
+        image_out = image_out.copy().astype(np.float32)
+        label_out = label_out.copy().astype(np.float32)
         return image_out, label_out
 
     def preprocess_eval(self, image, label):
@@ -122,7 +133,7 @@ class ADE20k():
         label = label[h_off:h_off+self.crop_size, w_off:w_off+self.crop_size]
 
         image = (image - self.image_mean) / self.image_std
-        image = image.transpose((2, 0, 1))
+        image = image.transpose((2, 0, 1)).astype(np.float32)
         return image, label
 
     def __len__(self):
@@ -155,7 +166,7 @@ class VOC12Dataset():
         self.image_std = np.array([58.395, 57.120, 57.375])
         self.ignore_label = 255
         self.crop_size = 473
-
+        self.rotate_angle = [-10.0,10.0]
         if self.mode == "train" or self.mode == "eval":
             # 以标注图像为准
             self.images_root = os.path.join(root_path, "VOC2012", 'JPEGImages')
@@ -186,6 +197,15 @@ class VOC12Dataset():
             image, label = self.preprocess_eval(image, label)
 
         return image, label
+    
+    def rotate(self,image,label):
+        if np.random.uniform(0.0, 1.0) > 0.5:
+            angle = self.rotate_angle[0] + (self.rotate_angle[1] - self.rotate_angle[0]) * random.random()
+            h, w = label.shape
+            matrix = cv2.getRotationMatrix2D((w / 2, h / 2), angle, 1)
+            image = cv2.warpAffine(image, matrix, (w, h), flags=cv2.INTER_LINEAR, borderMode=cv2.BORDER_CONSTANT, borderValue=0)
+            label = cv2.warpAffine(label, matrix, (w, h), flags=cv2.INTER_NEAREST, borderMode=cv2.BORDER_CONSTANT, borderValue=self.ignore_label)
+        return image, label
 
     def preprocess_(self, image, label):
         """SegDataset.preprocess_"""
@@ -210,8 +230,8 @@ class VOC12Dataset():
             label_out = label_out[:, ::-1]
 
         image_out = image_out.transpose((2, 0, 1))
-        image_out = image_out.copy()
-        label_out = label_out.copy()
+        image_out = image_out.copy().astype(np.float32)
+        label_out = label_out.copy().astype(np.float32)
         return image_out, label_out
 
     def preprocess_eval(self, image, label):
@@ -231,7 +251,7 @@ class VOC12Dataset():
         label = label[h_off:h_off+self.crop_size, w_off:w_off+self.crop_size]
 
         image = (image - self.image_mean) / self.image_std
-        image = image.transpose((2, 0, 1))
+        image = image.transpose((2, 0, 1)).astype(np.float32)
         return image, label
         
 
@@ -245,8 +265,7 @@ def get_dataset_VOC(num_classes, root_path, aug, mode, repeat, shard_num, shard_
     dataset_size = len(dataset_VOC)
     if mode=="train":
         data_set = ds.GeneratorDataset(source=dataset_VOC, column_names=["data", "label"],
-                                   shuffle=True,
-                                   num_shards=shard_num, shard_id=shard_id, num_parallel_workers=num_workers)
+                                   shuffle=True,num_shards=shard_num, shard_id=shard_id)
     else:
         data_set = ds.GeneratorDataset(source=dataset_VOC, column_names=["data", "label"],shuffle=False)
     data_set = data_set.batch(batch_size, drop_remainder=True)
@@ -259,12 +278,10 @@ def get_dataset_ADE(num_classes, root_path, aug, mode, repeat, shard_num, shard_
     dataset_size = len(dataset_ADE)
     if mode== "train":
         data_set = ds.GeneratorDataset(source=dataset_ADE, column_names=["data", "label"],
-                                   shuffle=True, num_shards=shard_num, shard_id=shard_id,
-                                   num_parallel_workers=num_workers)
+                                   shuffle=True, num_shards=shard_num, shard_id=shard_id)
     else:
         data_set = ds.GeneratorDataset(source=dataset_ADE, column_names=["data", "label"],
                                    shuffle=False)
     data_set = data_set.batch(batch_size, drop_remainder=True)
     data_set = data_set.repeat(repeat)
     return data_set, dataset_size
-

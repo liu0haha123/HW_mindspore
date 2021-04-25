@@ -21,7 +21,7 @@ pspnet_resnet50_GPU = {
     "warmup_epochs": 0,
     # 优化器相关参数
     "momentum": 0.9,
+    "base_lr":0.01,
     # 网络声明时的其他参数
     "name": "pspnet_resnet50",
-    "pretrained_path": "./data/resnet.ckpt"
 }

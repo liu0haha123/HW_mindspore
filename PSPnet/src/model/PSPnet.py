@@ -11,7 +11,7 @@ from mindspore import dtype as mstype
 class ResNet(nn.Cell):
     def __init__(self, pretrained_path, pretrained=False):
         super(ResNet, self).__init__()
-        resnet = resnet50(1000)
+        resnet = resnet50(1001)
         if pretrained:
             param_dict = load_checkpoint(pretrained_path)
             load_param_into_net(resnet, param_dict)
@@ -87,7 +87,6 @@ class _PSPModule(nn.Cell):
         return nn.SequentialCell(prior, conv, bn, relu)
 
     def construct(self, features):
-        features = features.astype(mindspore.float32)
         pyramids = [features]
         for stage in self.stages:
             pyramids.append(self.resize_ops(stage(features)))

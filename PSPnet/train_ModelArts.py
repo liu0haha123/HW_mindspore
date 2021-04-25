@@ -40,7 +40,7 @@ def parse_args():
     parser.add_argument("--data_url", type=str, default=None, help="Dataset path")
     parser.add_argument("--train_url", type=str, default=None, help="Train output path")
     parser.add_argument("--modelArts_mode", type=bool, default=True)
-    
+
     parser.add_argument(
         "--device_target",
         type=str,
@@ -50,6 +50,7 @@ def parse_args():
     )
     parser.add_argument("--device_id", type=int, default=2, help="device num")
     parser.add_argument("--batch_size", type=int, default=8, help="batch_size")
+    parser.add_argument("--base_lr", type=int, default=0.01, help="base_lr")
     parser.add_argument("--epoch_size", type=int,
                         default=50, help="epoch_size")
     parser.add_argument(
@@ -70,9 +71,6 @@ def parse_args():
     parser.add_argument(
         "--pretrained_path", type=str, help="pretrain resnet"
     )
-    parser.add_argument(
-        "--base_lr", type=float, default=0.0002, help="base_lr"
-    )
     parser.add_argument("--loss_scale", type=float,
                         default=1024.0, help="loss scale")
     parser.add_argument("--rank", type=int, default=0,
@@ -89,7 +87,7 @@ def parse_args():
     # 分布式
 
     parser.add_argument("--distribute", type=bool, default=False, help="run distribute")
-    
+
     args = parser.parse_args()
     return args
 
@@ -119,7 +117,7 @@ def train():
     filename = "data_PSP.zip"
     mox.file.make_dirs(local_train_url)
     print(f"train args: {args_opt}\ncfg: {config}")
-    context.set_context(mode=context.GRAPH_MODE,save_graphs=False,device_target="Ascend")
+    context.set_context(mode=context.GRAPH_MODE, save_graphs=False, device_target="Ascend")
     # init multicards training
     if args_opt.modelArts_mode:
         device_num = int(os.getenv("RANK_SIZE"))
@@ -127,7 +125,7 @@ def train():
         rank_id = int(os.getenv('RANK_ID'))
         parallel_mode = ParallelMode.DATA_PARALLEL
         context.set_context(device_id=device_id, enable_auto_mixed_precision=True)
-        context.set_auto_parallel_context(device_num=device_num,parallel_mode=parallel_mode, gradients_mean=True)
+        context.set_auto_parallel_context(device_num=device_num, parallel_mode=parallel_mode, gradients_mean=True)
         set_algo_parameters(elementwise_op_strategy_follow=True)
         context.set_auto_parallel_context(all_reduce_fusion_config=[85, 160])
         init()
@@ -148,8 +146,8 @@ def train():
             % (device_id)
         )
     # transfer dataset
-    local_pretrain_url = os.path.join(local_pretrain_url,pretrain_filename)
-    obs_pretrain_url = os.path.join(obs_res_path,pretrain_filename)
+    local_pretrain_url = os.path.join(local_pretrain_url, pretrain_filename)
+    obs_pretrain_url = os.path.join(obs_res_path, pretrain_filename)
     mox.file.copy(obs_pretrain_url, local_pretrain_url)
     local_data_url = local_data_url + "/data"
 
@@ -163,8 +161,8 @@ def train():
             pretrained_path=local_pretrain_url,
             aux_branch=True,
         )
-        dataset,dataset_len = get_dataset_ADE(
-            root_path = local_data_url,
+        dataset, dataset_len = get_dataset_ADE(
+            root_path=local_data_url,
             num_classes=config["num_classes_ADE"],
             mode="train",
             aug=True,
@@ -175,7 +173,7 @@ def train():
             num_workers=8
         )
         # loss
-        train_net = Aux_CELoss_Cell(PSPnet_model,config["num_classes_ADE"], config["ignore_label"])
+        train_net = Aux_CELoss_Cell(PSPnet_model, config["num_classes_ADE"], config["ignore_label"])
     elif args_opt.dataset == "VOC":
         PSPnet_model = PSPnet.PSPNet(
             feature_size=config["feature_size"],
@@ -185,13 +183,14 @@ def train():
             pretrained_path=local_pretrain_url,
             aux_branch=True,
         )
-        dataset,dataset_len = get_dataset_VOC(root_path = local_data_url,num_classes=config["num_classes"],
-        mode="train",aug=True,repeat=1,shard_num=args_opt.group_size,shard_id=args_opt.rank,
-        batch_size=args_opt.batch_size,num_workers=8)
-        train_net = Aux_CELoss_Cell(PSPnet_model,config["num_classes"], config["ignore_label"])
+        dataset, dataset_len = get_dataset_VOC(root_path=local_data_url, num_classes=config["num_classes"],
+                                               mode="train", aug=True, repeat=1, shard_num=args_opt.group_size,
+                                               shard_id=args_opt.rank,
+                                               batch_size=args_opt.batch_size, num_workers=8)
+        train_net = Aux_CELoss_Cell(PSPnet_model, config["num_classes"], config["ignore_label"])
     else:
         raise ValueError("由于动态卷积的限制，暂不支持其他数据集")
-        
+    train_net.to_float(mindspore.float32)
     # load pretrained model
     if args_opt.ckpt_pre_trained == "train":
         param_dict = load_checkpoint(args_opt.ckpt_pre_trained)
@@ -228,13 +227,14 @@ def train():
     ckpoint_cb = ModelCheckpoint(
         prefix=args_opt.dataset, directory=local_train_url, config=config_ck
     )
-    if device_id==0:
+    if device_id == 0:
         cbs.append(ckpoint_cb)
     model.train(
         args_opt.epoch_size, dataset, callbacks=cbs, dataset_sink_mode=True,
     )
     if device_id == 0:
         mox.file.copy_parallel(local_train_url, args_opt.train_url)
+
 
 if __name__ == "__main__":
     train()

@@ -50,6 +50,9 @@ def parse_args():
     parser.add_argument(
         "--ckpt_pre_trained", type=str, default="eval", help="train/eval"
     )
+    parser.add_argument(
+        "--pretrain_path", type=str, default="./data/resnet.ckpt"
+    )
     parser.add_argument("--loss_scale", type=float,
                         default=1024.0, help="loss scale")
     parser.add_argument("--rank", type=int, default=2,
@@ -59,9 +62,6 @@ def parse_args():
     )
     parser.add_argument(
         "--save_steps", type=int, default=1000, help="steps interval for saving"
-    )
-    parser.add_argument(
-        "--base_lr", type=float, default=0.0002, help="base_lr"
     )
     parser.add_argument(
         "--keep_checkpoint_max", type=int, default=10, help="max checkpoint for saving"
@@ -92,7 +92,7 @@ def train():
             num_classes=config["num_classes_ADE"],
             backbone=config["backbone"],
             pretrained=True,
-            pretrained_path=config["pretrained_path"],
+            pretrained_path=args_opt.pretrain_path,
             aux_branch=True,
         )
         dataset,dataset_len = get_dataset_ADE(
@@ -113,7 +113,7 @@ def train():
             num_classes=config["num_classes"],
             backbone=config["backbone"],
             pretrained=True,
-            pretrained_path=config["pretrained_path"],
+            pretrained_path=args_opt.pretrain_path,
             aux_branch=True,
         )
         dataset,dataset_len = get_dataset_VOC(root_path = args_opt.root_path,num_classes=config["num_classes"],
@@ -122,7 +122,7 @@ def train():
         train_net = Aux_CELoss_Cell(PSPnet_model,config["num_classes"], config["ignore_label"])
     else:
         raise ValueError("由于动态卷积的限制，暂不支持其他数据集")
-        
+    train_net.to_float(mindspore.float32)
     # load pretrained model
     if args_opt.ckpt_pre_trained == "train":
         param_dict = load_checkpoint(args_opt.ckpt_pre_trained)
@@ -131,12 +131,12 @@ def train():
     iters_per_epoch = dataset_len
     total_train_steps = iters_per_epoch * args_opt.epoch_size
     # get learning rate
-    lr_iter = poly_lr(args_opt.base_lr, total_train_steps, total_train_steps, end_lr=0.0, power=0.9)
+    lr_iter = poly_lr(config["base_lr"], total_train_steps, total_train_steps, end_lr=0.0, power=0.9)
     opt = Momentum(
         params=train_net.trainable_params(),
         learning_rate=lr_iter,
         momentum=config["momentum"],
-        weight_decay=0.01,
+        weight_decay=0.0001,
         loss_scale=args_opt.loss_scale,
     )
 
@@ -161,7 +161,7 @@ def train():
     )
     cbs.append(ckpoint_cb)
     model.train(
-        args_opt.epoch_size, dataset, callbacks=cbs, dataset_sink_mode=True,
+        args_opt.epoch_size, dataset, callbacks=cbs, dataset_sink_mode=False,
     )
 
 

@@ -25,6 +25,20 @@ def intersectionAndUnion(output, target, K, ignore_index=255):
     area_union = area_output + area_target - area_intersection
     return area_intersection, area_union, area_target
 
+def intersectionAndUnionMS(output, target, K, ignore_index=255):
+    # 'K' classes, output and target sizes are N or N * L or N * H * W, each value in range 0 to K - 1.
+    output = output.reshape(-1)
+    target = target.reshape(-1)
+    output[target == ignore_index] = ignore_index
+    intersection = output[output == target]
+    hist = ops.HistogramFixedWidth(K)
+    range_Tensor = Tensor([0.0, K-1], mindspore.float32)
+    area_intersection = hist(intersection,range_Tensor)
+    area_output = hist(output,range_Tensor)
+    area_target = hist(target,range_Tensor)
+    area_union = area_output + area_target - area_intersection
+    return area_intersection, area_union, area_target
+
 # 设标签宽W，长H
 def fast_hist(a, b, n):
     # --------------------------------------------------------------------------------#
